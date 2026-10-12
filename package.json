@@ -1,0 +1,20 @@
+{
+  "CloudPush115": {
+    "name": "115网盘秒传",
+    "description": "把 MoviePilot 媒体库(或任意本地路径)中的文件以 SHA1 秒传方式推送到 115 网盘，不上传文件本体；支持 qBittorrent 下载完成即秒传——秒传成功自动打「已整理」标签使 MP 跳过整理(脱离整理队列)，秒传失败则交由 MP 正常整理；支持网页 Cookie / 开放平台两种登录；秒传失败可自定义间隔重试；全程只读，不移动原始文件。",
+    "labels": "网盘,工具",
+    "version": "1.3.0",
+    "icon": "https://raw.githubusercontent.com/dxmsk/MoviePilot-Plugins/main/icons/clouddisk.png",
+    "author": "dxmsk",
+    "level": 1,
+    "v3": false,
+    "release": true,
+    "history": {
+      "v1.3.0": "新增 qBittorrent 下载完成联动：种子下载完成即自动秒传到 115，秒传成功给种子打「已整理」标签使 MoviePilot 跳过整理（脱离整理队列），秒传失败不打标签交由 MP 正常整理；带「已整理」标签的种子不再重试秒传。内置纯标准库 qb 客户端，无需额外依赖。",
+      "v1.2.0": "新增扫码登录（插件内生成二维码）与可视化【浏览 115 目录】点选目标目录；Cookie 解析支持 JSON/DevTools/Netscape 等 5+ 种格式。",
+      "v1.1.0": "新增网页 Cookie 登录方式（纯标准库 AES/RSA/LZ4，零第三方依赖），免申请开放平台即可使用。",
+      "v1.0.0": "首个版本：基于 115 开放平台实现秒传；支持多路径扫描、自定义目录、失败重试(自定义间隔/次数)、全程只读不动原始路径。"
+    },
+    "v2": true
+  }
+}
