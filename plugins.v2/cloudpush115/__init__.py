@@ -30,9 +30,6 @@ from .qb_watcher import QBWatcher
 from . import p115_qrlogin as qrlogin
 from .dirbrowser_html import DIR_BROWSER_HTML
 from .qrlogin_html import QR_LOGIN_HTML as _QR_LOGIN_HTML
-from .dashboard_html import DASHBOARD_HTML
-from .homepage_html import HOMEPAGE_HTML
-from .localbrowser_html import LOCAL_BROWSER_HTML
 from .scanner import MediaScanner, RetryQueue
 
 
@@ -44,7 +41,7 @@ class CloudPush115(_PluginBase):
         "不下载、不上传文件本体。支持秒传失败自定义间隔重试，全程只读、不移动原始文件。"
     )
     plugin_icon = "clouddisk.png"
-    plugin_version = "1.4.1"
+    plugin_version = "1.4.2"
     plugin_author = "Minis"
     author_url = "https://github.com/jxxghp/MoviePilot"
     plugin_config_prefix = "cloudpush115_"
@@ -1301,66 +1298,92 @@ class CloudPush115(_PluginBase):
         }
 
     def get_page(self) -> List[dict]:
-        pid = self._plugin_id()
-        home = HOMEPAGE_HTML.replace("__PREFIX__", pid)
-        qr = _QR_LOGIN_HTML.replace("__PREFIX__", pid)
-        local = LOCAL_BROWSER_HTML.replace("__PREFIX__", pid)
-        remote = DIR_BROWSER_HTML.replace("__PREFIX__", pid)
+        history = list(reversed(self._history[-100:]))
+        retries = self._queue.to_list()[:50] if self._queue else []
+        done_count = len(self._done)
+        retry_count = len(self._queue) if self._queue else 0
+        last_run = self._last_run or "尚未运行"
+        status = "扫描中" if self._running else ("已启用" if self.get_state() else "未启用")
+        paths = [p.strip() for p in (self._watch_paths or "").replace("，", ",").replace("\n", ",").split(",") if p.strip()]
+        path_items = [{"path": p} for p in paths] or [{"path": "尚未配置监控目录，请在配置页添加本地路径"}]
+        hist = []
+        for h in history:
+            r = str(h.get("result", ""))
+            ok = ("成功" in r) or ("秒传" in r and "失败" not in r)
+            hist.append({
+                "name": str(h.get("name", "")),
+                "path": str(h.get("path", "")),
+                "size": self._format_size(h.get("size", 0)),
+                "result": "✅ " + r if ok else "⚠️ " + r,
+                "time": str(h.get("time", "")),
+            })
+        retry_items = [{
+            "name": str(x.get("name", "")),
+            "attempts": x.get("attempts", 0),
+            "error": str(x.get("last_error", ""))[:120],
+        } for x in retries]
 
-        def _vcard(icon, color, title, inner_html, border):
-            return {
-                "component": "VCard",
-                "props": {"variant": "flat", "class": "rounded-xl h-100",
-                          "style": f"border:1px solid {border};"
-                                   "box-shadow:0 8px 24px -16px rgba(0,0,0,.4);"},
-                "content": [
-                    {
-                        "component": "VCardTitle",
-                        "props": {"class": "d-flex align-center text-subtitle-1 font-weight-bold"},
-                        "content": [
-                            {"component": "VIcon",
-                             "props": {"icon": icon, "color": color, "class": "mr-2"}},
-                            {"component": "span", "text": title},
-                        ],
-                    },
-                    {
-                        "component": "VCardText",
-                        "content": [{"component": "VHtml", "props": {"html": inner_html}}],
-                    },
-                ],
-            }
+        def stat_card(icon, title, value, color):
+            return {"component": "VCard", "props": {"variant": "tonal", "color": color, "class": "rounded-lg"},
+                    "content": [{"component": "VCardText", "props": {"class": "d-flex align-center ga-3 py-4"},
+                                 "content": [
+                                     {"component": "VIcon", "props": {"icon": icon, "size": 32}},
+                                     {"component": "div", "content": [
+                                         {"component": "div", "props": {"class": "text-h5 font-weight-bold"}, "text": str(value)},
+                                         {"component": "div", "props": {"class": "text-caption"}, "text": title},
+                                     ]},
+                                 ]}]}
 
-        page: List[dict] = []
+        def section(title, icon, color, headers, items):
+            return {"component": "VCard", "props": {"variant": "outlined", "class": "rounded-lg mb-4"},
+                    "content": [
+                        {"component": "VCardTitle", "props": {"class": "d-flex align-center text-subtitle-1 font-weight-bold"},
+                         "content": [{"component": "VIcon", "props": {"icon": icon, "color": color, "class": "mr-2"}},
+                                     {"component": "span", "text": title}]},
+                        {"component": "VDataTable", "props": {"headers": headers, "items": items,
+                                                                  "density": "comfortable", "hover": True,
+                                                                  "items-per-page": 10}},
+                    ]}
 
-        # —— 首页：实时统计 + 操作按钮 + 整理条目可视化 ——
-        page.append({"component": "VHtml", "props": {"html": home}})
+        return [
+            {"component": "VCard", "props": {"variant": "tonal", "color": "primary", "class": "rounded-lg mb-4"},
+             "content": [{"component": "VCardTitle", "props": {"class": "text-h5 font-weight-bold"}, "text": "☁️ 115 网盘秒传"},
+                         {"component": "VCardSubtitle", "text": "SHA1 秒传 · 只读原文件 · qB 下载完成即推送"},
+                         {"component": "VCardText", "props": {"class": "d-flex flex-wrap ga-2"}, "content": [
+                             {"component": "VChip", "props": {"color": "success" if self.get_state() else "warning", "variant": "flat", "text": status}},
+                             {"component": "VChip", "props": {"color": "info", "variant": "tonal", "text": "最近扫描：" + str(last_run)}},
+                         ]}]},
+            {"component": "VRow", "props": {"dense": True, "class": "mb-2"}, "content": [
+                {"component": "VCol", "props": {"cols": 6, "md": 3}, "content": [stat_card("mdi-cloud-check", "已秒传", done_count, "success")]},
+                {"component": "VCol", "props": {"cols": 6, "md": 3}, "content": [stat_card("mdi-restart", "待重试", retry_count, "warning")]},
+                {"component": "VCol", "props": {"cols": 6, "md": 3}, "content": [stat_card("mdi-clock-outline", "最近扫描", last_run, "info")]},
+                {"component": "VCol", "props": {"cols": 6, "md": 3}, "content": [stat_card("mdi-cog-refresh", "运行状态", status, "primary")]},
+            ]},
+            section("整理条目 · 最近 100 条", "mdi-history", "success", [
+                {"title": "文件", "key": "name"}, {"title": "本地路径", "key": "path"},
+                {"title": "大小", "key": "size"}, {"title": "结果", "key": "result"},
+                {"title": "时间", "key": "time"},
+            ], hist),
+            section("待重试队列", "mdi-restart", "warning", [
+                {"title": "文件", "key": "name"}, {"title": "已重试", "key": "attempts"},
+                {"title": "最近错误", "key": "error"},
+            ], retry_items),
+            section("本地监控目录", "mdi-folder-search", "success", [
+                {"title": "当前监控路径（可在配置页编辑）", "key": "path"},
+            ], path_items),
+            {"component": "VAlert", "props": {"type": "info", "variant": "tonal", "class": "rounded-lg",
+              "icon": "mdi-information-outline", "text": "本页面使用 MoviePilot 原生 Vuetify 组件渲染。配置监控路径、115 Cookie/令牌和目标目录，请进入插件配置页修改；115 网盘目录由配置的目标路径自动创建。"}},
+        ]
 
-        # —— 三栏可视化：扫码登录 / 本地目录 / 115 目录 ——
-        page.append({
-            "component": "VRow",
-            "props": {"class": "mt-1"},
-            "content": [
-                {"component": "VCol", "props": {"cols": 12, "md": 4},
-                 "content": [_vcard("mdi-qrcode-scan", "primary", "扫码登录 115",
-                                    qr, "rgba(94,92,230,.18)")]},
-                {"component": "VCol", "props": {"cols": 12, "md": 4},
-                 "content": [_vcard("mdi-folder-search", "success", "选择本地监控目录",
-                                    local, "rgba(52,199,89,.2)")]},
-                {"component": "VCol", "props": {"cols": 12, "md": 4},
-                 "content": [_vcard("mdi-cloud-search", "info", "选择 115 目标目录",
-                                    remote, "rgba(10,132,255,.18)")]},
-            ],
-        })
-
-        # —— 安全说明 ——
-        page.append({
-            "component": "VAlert",
-            "props": {
-                "type": "info", "variant": "tonal",
-                "class": "mt-3 rounded-xl", "icon": "mdi-shield-check",
-                "text": "本插件仅对文件做 SHA1「秒传」，不下载、不上传文件本体，"
-                        "全程只读原始路径，绝不移动/修改/删除任何原始文件。"
-                        "秒传失败的文件会进入重试队列，按你设置的间隔自动重试。",
-            },
-        })
-        return page
+    @staticmethod
+    def _format_size(size: Any) -> str:
+        try:
+            n = float(size or 0)
+        except (TypeError, ValueError):
+            return str(size or "")
+        units = ("B", "KB", "MB", "GB", "TB")
+        i = 0
+        while n >= 1024 and i < len(units) - 1:
+            n /= 1024
+            i += 1
+        return f"{n:.1f} {units[i]}" if i else f"{int(n)} B"
