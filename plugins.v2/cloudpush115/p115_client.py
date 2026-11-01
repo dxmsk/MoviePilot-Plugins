@@ -19,6 +19,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+from .filehash import sha1_file
 import time
 import urllib.error
 import urllib.parse
@@ -283,6 +284,15 @@ class P115Client:
 
         size = p.stat().st_size
         sha1 = self._sha1_file(p)
+        try:
+            if p.stat().st_size != size:
+                return {"ok": False, "reuse": False, "pickcode": "",
+                        "need_check": False, "message": "文件在秒传计算期间发生变化，请下轮重试",
+                        "sha1": "", "size": p.stat().st_size}
+        except OSError as exc:
+            return {"ok": False, "reuse": False, "pickcode": "",
+                    "need_check": False, "message": f"秒传期间读取文件状态失败: {exc}",
+                    "sha1": "", "size": size}
 
         payload: Dict[str, Any] = {
             "file_name": p.name,
@@ -308,7 +318,16 @@ class P115Client:
         if resp.get("status") == 7:
             sign_key = resp.get("sign_key") or ""
             sign_check = resp.get("sign_check") or ""
-            sign_val = self._calc_sign_val(p, sign_check)
+            try:
+                before_check = p.stat()
+                sign_val = self._calc_sign_val(p, sign_check)
+                after_check = p.stat()
+                if (before_check.st_size, before_check.st_mtime_ns, getattr(before_check, "st_ino", 0)) != (
+                        after_check.st_size, after_check.st_mtime_ns,
+                        getattr(after_check, "st_ino", 0)):
+                    sign_val = ""
+            except OSError:
+                sign_val = ""
             if not sign_val:
                 return {
                     "ok": False, "reuse": False, "pickcode": "",
@@ -363,22 +382,19 @@ class P115Client:
             start, end = int(start_s), int(end_s)
         except (ValueError, AttributeError):
             return ""
+        if start < 0 or end < start:
+            return ""
         length = end - start + 1
         try:
             with open(path, "rb") as f:
                 f.seek(start)
                 chunk = f.read(length)
+            if len(chunk) != length:
+                return ""
             return hashlib.sha1(chunk).hexdigest().upper()
         except OSError:
             return ""
 
     @staticmethod
     def _sha1_file(path: Path, chunk_size: int = 1024 * 1024) -> str:
-        h = hashlib.sha1()
-        with open(path, "rb") as f:
-            while True:
-                chunk = f.read(chunk_size)
-                if not chunk:
-                    break
-                h.update(chunk)
-        return h.hexdigest().upper()
+        return sha1_file(path, chunk_size=chunk_size)
