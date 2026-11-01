@@ -146,7 +146,12 @@ class QBClient:
         exclude = set(exclude_tags or [])
         result = []
         for t in self.torrents_info(flt="completed"):
-            tags = set((t.get("tags") or "").split(",")) if isinstance(t.get("tags"), str) else set(t.get("tags") or [])
+            raw_tags = t.get("tags") or []
+            if isinstance(raw_tags, str):
+                # qB API returns comma+space separated tags, e.g. "已整理, sonarr".
+                tags = {part.strip() for part in raw_tags.split(",") if part.strip()}
+            else:
+                tags = {str(part).strip() for part in raw_tags if str(part).strip()}
             if done_tag in tags:
                 continue
             if exclude and (tags & exclude):
