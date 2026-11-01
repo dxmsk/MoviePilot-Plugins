@@ -30,6 +30,7 @@ from .qb_watcher import QBWatcher
 from . import p115_qrlogin as qrlogin
 from .dirbrowser_html import DIR_BROWSER_HTML
 from .qrlogin_html import QR_LOGIN_HTML as _QR_LOGIN_HTML
+from .dashboard_html import DASHBOARD_HTML
 from .scanner import MediaScanner, RetryQueue
 
 
@@ -41,7 +42,7 @@ class CloudPush115(_PluginBase):
         "不下载、不上传文件本体。支持秒传失败自定义间隔重试，全程只读、不移动原始文件。"
     )
     plugin_icon = "clouddisk.png"
-    plugin_version = "1.3.5"
+    plugin_version = "1.4.0"
     plugin_author = "Minis"
     author_url = "https://github.com/jxxghp/MoviePilot"
     plugin_config_prefix = "cloudpush115_"
@@ -1193,71 +1194,58 @@ class CloudPush115(_PluginBase):
         }
 
     def get_page(self) -> List[dict]:
-        state = "✅ 已启用" if self.get_state() else "❌ 未启用"
+        state = "已启用" if self.get_state() else "未启用"
         retry_count = len(self._queue) if self._queue else 0
         done_count = len(self._done)
-        cards = [
-            {
-                "component": "VCol",
-                "props": {"cols": 12, "md": 4},
-                "content": [{
-                    "component": "VAlert",
-                    "props": {"type": "success" if self.get_state() else "warning",
-                              "variant": "tonal", "text": f"插件状态: {state}"},
-                }],
-            },
-            {
-                "component": "VCol",
-                "props": {"cols": 12, "md": 4},
-                "content": [{
-                    "component": "VAlert",
-                    "props": {"type": "info", "variant": "tonal",
-                              "text": f"已秒传: {done_count} | 待重试: {retry_count}"},
-                }],
-            },
-            {
-                "component": "VCol",
-                "props": {"cols": 12, "md": 4},
-                "content": [{
-                    "component": "VAlert",
-                    "props": {"type": "info", "variant": "tonal",
-                              "text": f"最近扫描: {self._last_run or '尚未运行'}"},
-                }],
-            },
-            {
-                "component": "VCol",
-                "props": {"cols": 12, "md": 4},
-                "content": [{
-                    "component": "VAlert",
-                    "props": {
-                        "type": "success" if (self._qb_enabled and self._qb_host) else "secondary",
-                        "variant": "tonal",
-                        "text": (f"qb 联动: ✅ {self._qb_host}（间隔 {self._qb_interval}s）"
-                                 if (self._qb_enabled and self._qb_host) else "qb 联动: ❌ 未启用"),
-                    },
-                }],
-            },
-        ]
-        page: List[dict] = [{"component": "VRow", "content": cards}]
+        qb_on = bool(self._qb_enabled and self._qb_host)
+        qb_txt = (f"{self._qb_host}") if qb_on else "未启用"
+
+        dash = (DASHBOARD_HTML
+                .replace("__STATE_ON__", "1" if self.get_state() else "0")
+                .replace("__STATE__", state)
+                .replace("__DONE__", str(done_count))
+                .replace("__RETRY__", str(retry_count))
+                .replace("__LASTRUN__", str(self._last_run or "尚未运行"))
+                .replace("__QB_ON__", "1" if qb_on else "0")
+                .replace("__QB__", qb_txt))
+
+        page: List[dict] = [{
+            "component": "VHtml",
+            "props": {"html": dash},
+        }]
 
         # ---- 扫码登录 + 目录可视化选择 ----
         page.append({
             "component": "VRow",
+            "props": {"class": "mt-1"},
             "content": [
                 {
                     "component": "VCol",
                     "props": {"cols": 12, "md": 5},
                     "content": [{
                         "component": "VCard",
-                        "props": {"variant": "tonal", "color": "primary", "title": "📱 扫码登录 115"},
-                        "content": [{
-                            "component": "VCardText",
-                            "content": [{
-                                "component": "VHtml",
-                                "props": {"html": _QR_LOGIN_HTML.replace(
-                                    "__PREFIX__", self._plugin_id())},
-                            }],
-                        }],
+                        "props": {"variant": "flat", "class": "rounded-xl",
+                                  "style": "border:1px solid rgba(94,92,230,.18);"
+                                           "box-shadow:0 8px 24px -14px rgba(94,92,230,.5);"},
+                        "content": [
+                            {
+                                "component": "VCardTitle",
+                                "props": {"class": "d-flex align-center text-subtitle-1 font-weight-bold"},
+                                "content": [
+                                    {"component": "VIcon",
+                                     "props": {"icon": "mdi-qrcode-scan", "color": "primary", "class": "mr-2"}},
+                                    {"component": "span", "text": "扫码登录 115"},
+                                ],
+                            },
+                            {
+                                "component": "VCardText",
+                                "content": [{
+                                    "component": "VHtml",
+                                    "props": {"html": _QR_LOGIN_HTML.replace(
+                                        "__PREFIX__", self._plugin_id())},
+                                }],
+                            },
+                        ],
                     }],
                 },
                 {
@@ -1265,14 +1253,28 @@ class CloudPush115(_PluginBase):
                     "props": {"cols": 12, "md": 7},
                     "content": [{
                         "component": "VCard",
-                        "props": {"variant": "tonal", "title": "📁 浏览并选择 115 目标目录"},
-                        "content": [{
-                            "component": "VCardText",
-                            "content": [{
-                                "component": "VHtml",
-                                "props": {"html": DIR_BROWSER_HTML},
-                            }],
-                        }],
+                        "props": {"variant": "flat", "class": "rounded-xl",
+                                  "style": "border:1px solid rgba(10,132,255,.18);"
+                                           "box-shadow:0 8px 24px -14px rgba(10,132,255,.5);"},
+                        "content": [
+                            {
+                                "component": "VCardTitle",
+                                "props": {"class": "d-flex align-center text-subtitle-1 font-weight-bold"},
+                                "content": [
+                                    {"component": "VIcon",
+                                     "props": {"icon": "mdi-folder-open", "color": "info", "class": "mr-2"}},
+                                    {"component": "span", "text": "浏览并选择 115 目标目录"},
+                                ],
+                            },
+                            {
+                                "component": "VCardText",
+                                "content": [{
+                                    "component": "VHtml",
+                                    "props": {"html": DIR_BROWSER_HTML.replace(
+                                        "__PREFIX__", self._plugin_id())},
+                                }],
+                            },
+                        ],
                     }],
                 },
             ],
@@ -1288,56 +1290,83 @@ class CloudPush115(_PluginBase):
                     "error": str(it.get("last_error", ""))[:60],
                 })
             page.append({
-                "component": "VRow",
-                "content": [{
-                    "component": "VCol",
-                    "props": {"cols": 12},
-                    "content": [{
+                "component": "VCard",
+                "props": {"variant": "flat", "class": "rounded-xl mt-3",
+                          "style": "border:1px solid rgba(255,159,10,.25);"},
+                "content": [
+                    {
+                        "component": "VCardTitle",
+                        "props": {"class": "d-flex align-center text-subtitle-1 font-weight-bold"},
+                        "content": [
+                            {"component": "VIcon",
+                             "props": {"icon": "mdi-restart", "color": "warning", "class": "mr-2"}},
+                            {"component": "span", "text": f"待重试队列（{retry_count}）"},
+                        ],
+                    },
+                    {
                         "component": "VDataTable",
                         "props": {
                             "headers": [
                                 {"title": "文件", "key": "name"},
-                                {"title": "已重试", "key": "attempts"},
+                                {"title": "已重试", "key": "attempts", "align": "center"},
                                 {"title": "最近错误", "key": "error"},
                             ],
                             "items": rows,
-                            "density": "compact",
+                            "density": "comfortable",
                             "hover": True,
+                            "items-per-page": 20,
                         },
-                    }],
-                }],
+                    },
+                ],
             })
 
         if self._history:
+            hist = []
+            for h in reversed(self._history[-50:]):
+                r = str(h.get("result", ""))
+                ok = ("成功" in r) or ("秒传" in r and "失败" not in r)
+                hist.append({**h, "_ok": ok})
             page.append({
-                "component": "VRow",
-                "content": [{
-                    "component": "VCol",
-                    "props": {"cols": 12},
-                    "content": [{
+                "component": "VCard",
+                "props": {"variant": "flat", "class": "rounded-xl mt-3",
+                          "style": "border:1px solid rgba(52,199,89,.22);"},
+                "content": [
+                    {
+                        "component": "VCardTitle",
+                        "props": {"class": "d-flex align-center text-subtitle-1 font-weight-bold"},
+                        "content": [
+                            {"component": "VIcon",
+                             "props": {"icon": "mdi-history", "color": "success", "class": "mr-2"}},
+                            {"component": "span", "text": "秒传记录（最近 50 条）"},
+                        ],
+                    },
+                    {
                         "component": "VDataTable",
                         "props": {
                             "headers": [
                                 {"title": "文件", "key": "name"},
                                 {"title": "原始路径", "key": "path"},
-                                {"title": "大小", "key": "size"},
-                                {"title": "结果", "key": "result"},
+                                {"title": "大小", "key": "size", "align": "end"},
+                                {"title": "结果", "key": "result", "align": "center"},
                                 {"title": "时间", "key": "time"},
                             ],
-                            "items": self._history[-50:],
-                            "density": "compact",
+                            "items": hist,
+                            "density": "comfortable",
                             "hover": True,
+                            "items-per-page": 15,
                         },
-                    }],
-                }],
+                    },
+                ],
             })
 
         page.append({
             "component": "VAlert",
             "props": {
-                "type": "warning",
+                "type": "info",
                 "variant": "tonal",
-                "text": "说明：本插件仅对文件做 SHA1「秒传」，不下载、不上传文件本体，"
+                "class": "mt-3 rounded-xl",
+                "icon": "mdi-shield-check",
+                "text": "本插件仅对文件做 SHA1「秒传」，不下载、不上传文件本体，"
                         "全程只读原始路径，绝不移动/修改/删除任何原始文件。"
                         "秒传失败的文件会进入重试队列，按你设置的间隔自动重试。",
             },
