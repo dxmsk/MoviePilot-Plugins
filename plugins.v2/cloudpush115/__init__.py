@@ -40,7 +40,7 @@ class CloudPush115(_PluginBase):
         "不下载、不上传文件本体。支持秒传失败自定义间隔重试，全程只读、不移动原始文件。"
     )
     plugin_icon = "clouddisk.png"
-    plugin_version = "1.4.5"
+    plugin_version = "1.4.6"
     plugin_author = "Minis"
     author_url = "https://github.com/jxxghp/MoviePilot"
     plugin_config_prefix = "cloudpush115_"
@@ -913,7 +913,7 @@ class CloudPush115(_PluginBase):
                 f"待重试: {len(self._queue) if self._queue else 0}\n"
                 f"最近扫描: {self._last_run or '尚未运行'}")
 
-    def _local_dir_items(self, max_items: int = 1200, max_depth: int = 1) -> List[Dict[str, str]]:
+    def _local_dir_items(self, max_items: int = 1200, max_depth: int = 0) -> List[Dict[str, str]]:
         """缓存扫描 MP 本地配置根、Docker 所有挂载点和已选路径。"""
         import os, time
         cache = getattr(self, "_local_dir_cache", {})
