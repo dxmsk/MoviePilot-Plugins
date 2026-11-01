@@ -40,7 +40,7 @@ class CloudPush115(_PluginBase):
         "不下载、不上传文件本体。支持秒传失败自定义间隔重试，全程只读、不移动原始文件。"
     )
     plugin_icon = "clouddisk.png"
-    plugin_version = "1.5.0"
+    plugin_version = "1.5.1"
     plugin_author = "Minis"
     author_url = "https://github.com/jxxghp/MoviePilot"
     plugin_config_prefix = "cloudpush115_"
@@ -1068,36 +1068,24 @@ class CloudPush115(_PluginBase):
         """后台生成有限规模的网盘折叠树；设置页面构建不等待网络。"""
         if not self._cookie:
             return
-        client = P115WebClient(cookie=self._cookie, user_agent=self._user_agent)
-        budget = [10**9]
-        base_path = getattr(self, "_remote_browse_path", "/") or "/"
-        start_cid = str(getattr(self, "_remote_browse_cid", "0") or "0")
-
-        def load(cid: str, path: str, depth: int) -> List[Dict[str, Any]]:
-            if budget[0] <= 0:
-                return []
-            try:
-                entries = client.browse(cid).get("entries", [])
-            except Exception as e:
-                logger.warning(f"{self.LOG}读取115目录失败 cid={cid}: {e}")
-                return []
-            result = []
+        try:
+            client = P115WebClient(cookie=self._cookie, user_agent=self._user_agent)
+            base_path = getattr(self, "_remote_browse_path", "/") or "/"
+            cid = str(getattr(self, "_remote_browse_cid", "0") or "0")
+            entries = client.browse(cid).get("entries", [])
             for entry in entries:
-                if budget[0] <= 0: break
-                budget[0] -= 1
                 child_cid = str(entry.get("cid", ""))
                 name = str(entry.get("name", ""))
-                child_path = (path.rstrip("/") + "/" + name).replace("//", "/")
-                if path == "/": child_path = "/" + name
+                child_path = (base_path.rstrip("/") + "/" + name).replace("//", "/")
+                if base_path == "/": child_path = "/" + name
                 entry["path"] = child_path
-                entry["children"] = load(child_cid, child_path, depth + 1) if child_cid else []
                 if child_cid:
                     self._remote_cid_paths[child_cid] = child_path
                     self._remote_parent_map[child_cid] = cid
-                result.append(entry)
-            return result
-
-        self._remote_dir_options_cache = load(start_cid, base_path, 0)
+            self._remote_dir_options_cache = entries
+        except Exception as e:
+            logger.warning(f"{self.LOG}后台加载当前层网盘目录失败: {e}")
+            self._remote_dir_options_cache = []
 
     def _remote_dir_items(self) -> List[Dict[str, str]]:
         """读取后台缓存；表单构建绝不访问网络。"""
@@ -1108,51 +1096,24 @@ class CloudPush115(_PluginBase):
             items.append({"title": self._remote_dir, "value": self._remote_dir})
         return items
 
-    def _tree_node(self, entry: Dict[str, Any], remote: bool = False,
-                   depth: int = 0, budget: Optional[List[int]] = None) -> Dict[str, Any]:
-        """原生折叠目录节点：子目录藏在VExpansionPanel里，不摊平。"""
-        import os
-        if budget is None: budget = [10**9]
-        path = str(entry.get("path", "") or "")
-        cid = str(entry.get("cid", "0") or "0")
-        name = str(entry.get("name", path if not remote else cid))
-        params = {"cid": cid, "path": path or "/"} if remote else {"path": path}
-        endpoint = "/selectremote" if remote else "/selectlocal"
-        body = [{"component": "VBtn", "props": {"size": "small", "color": "success", "variant": "tonal", "prepend-icon": "mdi-check"},
-                 "text": "选此目录", "events": {"click": {"api": f"plugin/{type(self).__name__}{endpoint}", "method": "post", "params": params}}}]
-        children = entry.get("children", []) if remote else []
-        if not remote and budget[0] > 0:
-            try:
-                with os.scandir(path) as it:
-                    children = [{"name": e.name, "path": e.path} for e in sorted(it, key=lambda x:x.name.casefold())
-                                if not e.name.startswith(".") and e.is_dir(follow_symlinks=False)]
-            except OSError:
-                children = []
-        nested = []
-        for child in children:
-            if budget[0] <= 0: break
-            budget[0] -= 1
-            nested.append(self._tree_node(child, remote=remote, depth=depth+1, budget=budget))
-        if nested:
-            body.append({"component": "VExpansionPanels", "props": {"multiple": True, "variant": "accordion"}, "content": nested})
-        return {"component": "VExpansionPanel", "content": [
-            {"component": "VExpansionPanelTitle", "text": "📁 " + name},
-            {"component": "VExpansionPanelText", "content": body},
-        ]}
-
     def _local_tree_panel(self) -> Dict[str, Any]:
-        budget = [10**9]
-        roots = self._local_current_entries()
-        return {"component": "VExpansionPanels", "props": {"multiple": True, "variant": "accordion"},
-                "content": [self._tree_node(x, budget=budget) for x in roots]}
+        """Render only mount roots or the current folder's immediate children."""
+        current = getattr(self, "_local_browse_path", "") or ""
+        parent = (os.path.dirname(current.rstrip("/")) or "/") if current else None
+        return self._directory_panel("本地目录", "📁", "/localenter", "/selectlocal",
+                                     self._local_current_entries(), "path", current or "/", parent)
 
     def _remote_tree_panel(self) -> Dict[str, Any]:
-        budget = [10**9]
-        roots = self._remote_current_entries()
-        return {"component": "VExpansionPanels", "props": {"multiple": True, "variant": "accordion"},
-                "content": [self._tree_node(x, remote=True, budget=budget) for x in roots]}
+        """Render only the current 115 cid's immediate child folders."""
+        cid = str(getattr(self, "_remote_browse_cid", "0") or "0")
+        parent = self._remote_parent_map.get(cid) if cid != "0" else None
+        parent_path = self._remote_cid_paths.get(str(parent), "/") if parent is not None else None
+        return self._directory_panel("115目标目录", "📁", "/remoteenter", "/selectremote",
+                                     self._remote_current_entries(), "cid", self._remote_browse_path or "/",
+                                     parent, parent_path, remote=True)
 
     def _local_current_entries(self) -> List[Dict[str, str]]:
+
         """仅列出当前浏览位置的一层文件夹。根状态只列挂载根和已选路径。"""
         import os
         current = getattr(self, "_local_browse_path", "") or ""
