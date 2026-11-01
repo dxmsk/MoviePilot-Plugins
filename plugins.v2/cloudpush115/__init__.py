@@ -40,7 +40,7 @@ class CloudPush115(_PluginBase):
         "不下载、不上传文件本体。支持秒传失败自定义间隔重试，全程只读、不移动原始文件。"
     )
     plugin_icon = "clouddisk.png"
-    plugin_version = "1.4.8"
+    plugin_version = "1.4.9"
     plugin_author = "Minis"
     author_url = "https://github.com/jxxghp/MoviePilot"
     plugin_config_prefix = "cloudpush115_"
@@ -1225,21 +1225,16 @@ class CloudPush115(_PluginBase):
             local_parent = ""
         remote_parent = self._remote_parent_map.get(self._remote_browse_cid) if self._remote_browse_cid != "0" else None
         parent_path = self._remote_cid_paths.get(str(remote_parent), "/") if remote_parent is not None else None
-        local_panel = {"component": "VCard", "props": {"variant": "outlined", "class": "mb-3"}, "content": [
-            {"component": "VCardTitle", "text": "💻 本地文件夹 · 当前层浏览"},
-            {"component": "VCardSubtitle", "text": "已选监控：" + ("，".join(local_selected) if local_selected else "未选择")},
-            {"component": "VCardText", "content": [
-                {"component": "VAlert", "props": {"type": "info", "variant": "tonal", "text": "点「进入」后重新打开本设置页显示下一层；点「选此目录」加入监控。"}},
-                self._local_tree_panel(),
-            ]},
+        # Keep the existing side-by-side form layout and replace only the two path fields.
+        local_panel = {"component": "div", "content": [
+            {"component": "VAlert", "props": {"type": "success", "variant": "tonal",
+                "text": "当前监控：" + ("，".join(local_selected) if local_selected else "未选择")}},
+            self._local_tree_panel(),
         ]}
-        remote_panel = {"component": "VCard", "props": {"variant": "outlined", "class": "mb-3"}, "content": [
-            {"component": "VCardTitle", "text": "☁️ 115网盘 · 当前层浏览"},
-            {"component": "VCardSubtitle", "text": "已选目标：" + (self._remote_dir or "/（网盘根目录）")},
-            {"component": "VCardText", "content": [
-                {"component": "VAlert", "props": {"type": "info", "variant": "tonal", "text": "点「进入」后重新打开本设置页显示下一层；Cookie 需先保存。"}},
-                self._remote_tree_panel(),
-            ]},
+        remote_panel = {"component": "div", "content": [
+            {"component": "VAlert", "props": {"type": "info", "variant": "tonal",
+                "text": "当前目标：" + (self._remote_dir or "/（网盘根目录）")}},
+            self._remote_tree_panel(),
         ]}
         return [
             {
