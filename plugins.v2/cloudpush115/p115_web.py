@@ -263,7 +263,11 @@ class P115WebClient:
 
     # ---------------- 目录操作 ---------------- #
     def list_dir(self, cid: int | str = 0) -> Dict[str, Any]:
-        """列出目录内容，返回 {fid: {name, is_dir}}。"""
+        """列出目录内容，返回 {fid: {name, is_dir}}。
+
+        115 /files 接口返回中：目录项有 cid、无 sha；文件项有 fid、有 sha。
+        （早期版本误用 fid 判目录，导致目录永远识别不到 → 反复创建 → “该目录名称已存在”）
+        """
         result: Dict[str, Any] = {}
         offset = 0
         while True:
@@ -275,12 +279,14 @@ class P115WebClient:
                 break
             items = data.get("data") or []
             for it in items:
-                fid = str(it.get("fid") or it.get("cid") or "")
+                # 目录用 cid，文件用 fid
+                is_dir = bool(it.get("cid")) and not it.get("sha")
+                fid = str(it.get("cid") if is_dir else (it.get("fid") or it.get("cid")) or "")
                 if not fid:
                     continue
                 result[fid] = {
                     "name": it.get("n") or it.get("fn") or "",
-                    "is_dir": bool(it.get("fid") and not it.get("sha")),
+                    "is_dir": is_dir,
                     "cid": str(it.get("cid") or ""),
                 }
             if len(items) < 500:
@@ -358,11 +364,20 @@ class P115WebClient:
                    or (data.get("data") or {}).get("cid"))
             if cid:
                 return int(cid)
-            found = self.find_dir(parent_cid, name)
-            if found is not None:
-                return found
+            for _ in range(3):
+                found = self.find_dir(parent_cid, name)
+                if found is not None:
+                    return found
+                time.sleep(0.4)
         msg = str(data.get("error") or data.get("message") or "")
         if "已存在" in msg or "exist" in msg.lower():
+            # 已存在但刚才没查到：再重试几次（目录列表可能有延迟）
+            for _ in range(4):
+                found = self.find_dir(parent_cid, name)
+                if found is not None:
+                    return found
+                time.sleep(0.5)
+            # 最后兜底：分页全量再扫一次
             found = self.find_dir(parent_cid, name)
             if found is not None:
                 return found
