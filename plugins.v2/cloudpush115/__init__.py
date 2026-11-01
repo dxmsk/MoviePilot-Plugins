@@ -23,7 +23,6 @@ from app.log import logger
 from app.plugins import _PluginBase
 from app.schemas.types import EventType, NotificationType
 
-from .p115_client import P115AuthError, P115Client, P115Error
 from .p115_web import P115WebClient, P115WebError
 from .qb_client import QBClient, QBError, QBAuthError
 from .qb_watcher import QBWatcher
@@ -56,8 +55,6 @@ class CloudPush115(_PluginBase):
     _notify: bool = False
 
     # ---- 115 账号 ----
-    _login_mode: str = "open"         # open=开放平台token / cookie=网页Cookie
-    _access_token: str = ""           # 开放平台 access_token
     _cookie: str = ""                 # 网页 Cookie
     _user_agent: str = ""             # 自定义 UA（可选）
 
@@ -107,14 +104,14 @@ class CloudPush115(_PluginBase):
         self._onlyonce = bool(config.get("onlyonce"))
         self._notify = bool(config.get("notify"))
 
-        self._login_mode = (config.get("login_mode") or "open").strip()
-        self._access_token = (config.get("access_token") or "").strip()
+        # 仅使用网页 Cookie；保留旧字段兼容已安装配置，但不再读取 open token。
         self._cookie = (config.get("cookie") or "").strip()
         self._user_agent = (config.get("user_agent") or "").strip()
         self._client_cache = None
         self._client_cache_key = None
         self._remote_dir_cache = {}
-        self._watch_paths = config.get("watch_paths") or ""
+        raw_paths = config.get("watch_paths") or ""
+        self._watch_paths = ",".join(str(p) for p in raw_paths) if isinstance(raw_paths, (list, tuple, set)) else str(raw_paths)
         self._remote_dir = config.get("remote_dir") or ""
         self._extensions = config.get("extensions") or ""
         self._retry_interval = max(int(config.get("retry_interval") or 600), 30)
@@ -192,19 +189,14 @@ class CloudPush115(_PluginBase):
             self._start_qb_watcher()
 
     def _has_credentials(self) -> bool:
-        if self._login_mode == "cookie":
-            return bool(self._cookie)
-        return bool(self._access_token)
+        return bool(self._cookie)
 
     def _make_client(self):
         """按登录模式获取当前配置对应的复用客户端。"""
-        key = (self._login_mode, self._cookie, self._user_agent, self._access_token)
+        key = ("cookie", self._cookie, self._user_agent)
         if self._client_cache is not None and self._client_cache_key == key:
             return self._client_cache
-        if self._login_mode == "cookie":
-            client = P115WebClient(cookie=self._cookie, user_agent=self._user_agent)
-        else:
-            client = P115Client(access_token=self._access_token)
+        client = P115WebClient(cookie=self._cookie, user_agent=self._user_agent)
         self._client_cache = client
         self._client_cache_key = key
         self._remote_dir_cache.clear()
@@ -391,7 +383,7 @@ class CloudPush115(_PluginBase):
 
     def _do_scan(self) -> None:
         if not self._has_credentials():
-            logger.error(f"{self.LOG}未配置 115 凭据（access_token 或 Cookie），跳过")
+            logger.error(f"{self.LOG}未配置 115 网页 Cookie，跳过")
             return
         if not self._watch_paths:
             logger.error(f"{self.LOG}未配置监控目录，跳过")
@@ -643,6 +635,20 @@ class CloudPush115(_PluginBase):
                 "auth": "bear",
                 "summary": "把一个本地目录加入监控列表",
             },
+            {
+                "path": "/selectremote",
+                "endpoint": self.api_selectremote,
+                "methods": ["GET", "POST"],
+                "auth": "bear",
+                "summary": "保存选中的115目标目录",
+            },
+            {
+                "path": "/selectlocal",
+                "endpoint": self.api_selectlocal,
+                "methods": ["GET", "POST"],
+                "auth": "bear",
+                "summary": "保存本地监控目录",
+            },
         ]
 
     # ---------------------------------------------------------------- #
@@ -715,9 +721,6 @@ class CloudPush115(_PluginBase):
     # ---------------------------------------------------------------- #
     def api_browse(self, cid: str = "0") -> Dict[str, Any]:
         """列出 115 网盘指定目录（cid）下的子目录，供可视化选择。"""
-        if self._login_mode != "cookie":
-            return {"success": False,
-                    "message": "目录浏览需要 Cookie 登录模式（开放平台令牌不支持列目录）"}
         if not self._cookie:
             return {"success": False, "message": "请先配置 115 网页 Cookie"}
         try:
@@ -794,17 +797,43 @@ class CloudPush115(_PluginBase):
             return {"success": False, "message": f"已加入内存但写配置失败: {e}", "paths": cur}
         return {"success": True, "message": f"已加入监控: {path}", "paths": cur}
 
+    def api_selectlocal(self, path: str = "") -> Dict[str, Any]:
+        """将目录选择器所选路径设为唯一监控目录。"""
+        import os
+        path = os.path.abspath((path or "").strip()) if path else ""
+        if not path or not os.path.isdir(path):
+            return {"success": False, "message": "请选择有效的本地目录"}
+        self._watch_paths = path
+        try:
+            self.update_config(self._current_config())
+            return {"success": True, "message": f"已设置本地监控目录：{path}", "path": path}
+        except Exception as e:
+            return {"success": False, "message": f"保存目录失败：{e}"}
+
+    def api_selectremote(self, cid: str = "0") -> Dict[str, Any]:
+        """保存用户选中的 115 目录路径。"""
+        if not self._cookie:
+            return {"success": False, "message": "请先填写并保存 115 网页 Cookie"}
+        try:
+            client = P115WebClient(cookie=self._cookie, user_agent=self._user_agent)
+            path = client.path_of_cid(cid or "0")
+            if not path:
+                return {"success": False, "message": "目录路径解析失败，请从网盘根目录重新展开选择"}
+            self._remote_dir = path
+            self.update_config(self._current_config())
+            return {"success": True, "message": f"已保存目标目录：{path}", "remote_dir": path}
+        except Exception as e:
+            return {"success": False, "message": f"保存目标目录失败：{e}"}
+
     def _current_config(self) -> Dict[str, Any]:
         """用当前内存字段重建一份完整配置（跨 MP 版本安全写回）。"""
         return {
             "enabled": self._enabled,
             "onlyonce": self._onlyonce,
             "notify": self._notify,
-            "login_mode": self._login_mode,
-            "access_token": self._access_token,
             "cookie": self._cookie,
             "user_agent": self._user_agent,
-            "watch_paths": self._watch_paths,
+            "watch_paths": [p.strip() for p in self._watch_paths.replace("，", ",").replace("\n", ",").split(",") if p.strip()],
             "remote_dir": self._remote_dir,
             "extensions": self._extensions,
             "retry_interval": self._retry_interval,
@@ -826,7 +855,7 @@ class CloudPush115(_PluginBase):
 
     def api_test(self) -> Dict[str, Any]:
         if not self._has_credentials():
-            return {"success": False, "message": "未配置凭据（access_token 或 Cookie）"}
+            return {"success": False, "message": "请先填写并保存 115 网页 Cookie"}
         try:
             client = self._make_client()
             info = client.check_login()
@@ -871,6 +900,54 @@ class CloudPush115(_PluginBase):
                 f"待重试: {len(self._queue) if self._queue else 0}\n"
                 f"最近扫描: {self._last_run or '尚未运行'}")
 
+    def _local_dir_items(self, max_items: int = 500, max_depth: int = 4) -> List[Dict[str, str]]:
+        """扫描容器可见的本地目录，生成可搜索下拉项。"""
+        import os
+        roots = [p for p in ("/media", "/mnt", "/downloads", "/data", "/volume1", "/opt") if os.path.isdir(p)]
+        items: Dict[str, str] = {}
+        for saved in (self._watch_paths or "").replace("，", ",").replace("\n", ",").split(","):
+            saved = saved.strip()
+            if saved and os.path.isdir(saved): items[saved] = saved
+        queue = [(p, 0) for p in roots]
+        while queue and len(items) < max_items:
+            folder, depth = queue.pop(0)
+            items[folder] = folder
+            if depth >= max_depth: continue
+            try:
+                children = sorted(os.scandir(folder), key=lambda e: e.name.lower())
+            except (OSError, PermissionError): continue
+            for entry in children:
+                try:
+                    if entry.is_dir(follow_symlinks=False) and not entry.name.startswith("."):
+                        items[entry.path] = entry.path
+                        if depth + 1 < max_depth: queue.append((entry.path, depth + 1))
+                except OSError: continue
+        return [{"title": p, "value": p} for p in sorted(items)]
+
+    def _remote_dir_items(self, max_items: int = 50, max_depth: int = 2) -> List[Dict[str, str]]:
+        """Cookie 登录后枚举有限深度网盘目录，供原生 VSelect 搜索选择。"""
+        items = ["/"]
+        if not self._cookie: return items
+        queue = [("0", "/", 0)]
+        seen = {"0"}
+        try:
+            client = P115WebClient(cookie=self._cookie, user_agent=self._user_agent)
+            while queue and len(items) < max_items:
+                cid, prefix, depth = queue.pop(0)
+                if depth >= max_depth: continue
+                for entry in client.browse(cid).get("entries", []):
+                    child = (prefix.rstrip("/") + "/" + entry["name"]) or "/"
+                    items.append(child)
+                    ecid = str(entry.get("cid", ""))
+                    if ecid and ecid not in seen:
+                        seen.add(ecid); queue.append((ecid, child, depth + 1))
+                    if len(items) >= max_items: break
+        except Exception as e:
+            logger.warning(f"{self.LOG}加载网盘目录列表失败: {e}")
+        if self._remote_dir and self._remote_dir not in items: items.insert(0, self._remote_dir)
+        paths = sorted(set(items))
+        return [{"title": ("🏠 根目录" if path == "/" else path), "value": path} for path in paths]
+
     def get_form(self) -> Tuple[List[dict], Dict[str, Any]]:
         return [
             {
@@ -906,37 +983,11 @@ class CloudPush115(_PluginBase):
                         ],
                     },
                     {
-                        "component": "VRow",
+                        "component": "VCard",
+                        "props": {"variant": "tonal", "color": "primary", "class": "mb-4"},
                         "content": [
-                            {
-                                "component": "VCol",
-                                "props": {"cols": 12, "md": 6},
-                                "content": [{
-                                    "component": "VSelect",
-                                    "props": {
-                                        "model": "login_mode",
-                                        "label": "115 登录方式",
-                                        "items": [
-                                            {"title": "网页 Cookie（推荐，免申请）", "value": "cookie"},
-                                            {"title": "开放平台 access_token", "value": "open"},
-                                        ],
-                                        "hint": "Cookie 模式用网页版登录态，无需申请开放平台应用。",
-                                        "persistent-hint": True,
-                                    },
-                                }],
-                            },
-                            {
-                                "component": "VCol",
-                                "props": {"cols": 12, "md": 6},
-                                "content": [{
-                                    "component": "VTextField",
-                                    "props": {
-                                        "model": "user_agent",
-                                        "label": "自定义 User-Agent（可选）",
-                                        "placeholder": "留空使用默认 115Browser UA",
-                                    },
-                                }],
-                            },
+                            {"component": "VCardTitle", "text": "🔐 115 网页 Cookie 登录"},
+                            {"component": "VCardText", "text": "只需网页 Cookie。粘贴 Cookie 并保存后，重新打开设置页加载 115 网盘目录。"},
                         ],
                     },
                     {
@@ -949,7 +1000,7 @@ class CloudPush115(_PluginBase):
                                     "component": "VTextarea",
                                     "props": {
                                         "model": "cookie",
-                                        "label": "115 网页 Cookie（选择 Cookie 登录时填写）",
+                                        "label": "115 网页 Cookie（必填）",
                                         "rows": 3,
                                         "hint": "从浏览器 F12 → Network 复制 Cookie，或粘贴 EditThisCookie 导出的文本。"
                                                 "至少包含 UID / CID / SEID。",
@@ -960,58 +1011,19 @@ class CloudPush115(_PluginBase):
                         ],
                     },
                     {
-                        "component": "VRow",
+                        "component": "VCard",
+                        "props": {"variant": "tonal", "color": "success", "class": "my-3"},
                         "content": [
-                            {
-                                "component": "VCol",
-                                "props": {"cols": 12},
-                                "content": [{
-                                    "component": "VAlert",
-                                    "props": {
-                                        "type": "info",
-                                        "variant": "tonal",
-                                        "title": "📱 扫码登录获取 Cookie",
-                                        "text": ("点击下方「扫码登录」生成二维码 → 用 115 App 扫码并确认 → "
-                                                 "再按提示复制 Cookie 填入上面的输入框。\n"
-                                                 "（115 出于安全设计，网页扫码后的 Cookie 只给 115 浏览器 App，"
-                                                 "插件无法直接读取，需手动复制一步。）"),
-                                    },
-                                }],
-                            },
-                            {
-                                "component": "VCol",
-                                "props": {"cols": 12},
-                                "content": [{
-                                    "component": "VBtn",
-                                    "props": {
-                                        "color": "primary",
-                                        "variant": "flat",
-                                        "block": True,
-                                        "model": "__qrlogin__",
-                                        "text": "扫码登录（生成二维码）",
-                                    },
-                                }],
-                            },
+                            {"component": "VCardTitle", "text": "💻 本地文件夹"},
+                            {"component": "VCardText", "text": "从容器可见的目录列表中搜索并多选，选中的路径会用于本地媒体扫描。"},
                         ],
                     },
                     {
-                        "component": "VRow",
+                        "component": "VCard",
+                        "props": {"variant": "tonal", "color": "info", "class": "my-3"},
                         "content": [
-                            {
-                                "component": "VCol",
-                                "props": {"cols": 12},
-                                "content": [{
-                                    "component": "VTextField",
-                                    "props": {
-                                        "model": "access_token",
-                                        "label": "115 开放平台 access_token（选择开放平台时填写）",
-                                        "type": "password",
-                                        "hint": "在 115 开放平台(https://open.115.com)申请的应用令牌；"
-                                                "仅用于秒传接口，请妥善保管。",
-                                        "persistent-hint": True,
-                                    },
-                                }],
-                            },
+                            {"component": "VCardTitle", "text": "☁️ 115 网盘目标文件夹"},
+                            {"component": "VCardText", "text": "先保存 Cookie，再重新打开插件设置页；可搜索并选择已存在的网盘目录。"},
                         ],
                     },
                     {
@@ -1021,12 +1033,17 @@ class CloudPush115(_PluginBase):
                                 "component": "VCol",
                                 "props": {"cols": 12, "md": 6},
                                 "content": [{
-                                    "component": "VTextField",
+                                    "component": "VSelect",
                                     "props": {
                                         "model": "watch_paths",
-                                        "label": "监控的本地目录（多个用逗号分隔）",
-                                        "placeholder": "/media/电影,/media/电视剧",
-                                        "hint": "只读取这些目录下的文件做秒传，绝不移动/删除原始文件。",
+                                        "label": "本地监控目录（搜索并多选）",
+                                        "items": self._local_dir_items(),
+                                        "item-title": "title",
+                                        "item-value": "value",
+                                        "multiple": True,
+                                        "chips": True,
+                                        "closable-chips": True,
+                                        "hint": "搜索目录名称或完整路径，可选择多个目录；仅读取文件。保存后启用扫描。",
                                         "persistent-hint": True,
                                     },
                                 }],
@@ -1035,37 +1052,28 @@ class CloudPush115(_PluginBase):
                                 "component": "VCol",
                                 "props": {"cols": 12, "md": 6},
                                 "content": [{
-                                    "component": "VTextField",
+                                    "component": "VSelect",
                                     "props": {
                                         "model": "remote_dir",
-                                        "label": "115 目标目录",
-                                        "placeholder": "/媒体/电影",
-                                        "hint": "秒传到 115 网盘的哪个目录，不存在会自动创建。留空=根目录。"
-                                                "也可在插件页面用「浏览目录」可视化选择。",
+                                        "label": "115 目标目录（搜索并选择）",
+                                        "items": self._remote_dir_items(),
+                                        "item-title": "title",
+                                        "item-value": "value",
+                                        "hint": "先保存 Cookie，再打开设置页加载网盘目录；支持搜索，默认根目录 /。",
                                         "persistent-hint": True,
+                                        "clearable": True,
                                     },
                                 }],
                             },
                         ],
                     },
+
                     {
-                        "component": "VRow",
+                        "component": "VCard",
+                        "props": {"variant": "tonal", "color": "primary", "class": "my-3"},
                         "content": [
-                            {
-                                "component": "VCol",
-                                "props": {"cols": 12},
-                                "content": [{
-                                    "component": "VAlert",
-                                    "props": {
-                                        "type": "info",
-                                        "variant": "tonal",
-                                        "title": "📁 可视化选择 115 目录",
-                                        "text": ("配置 Cookie 后，打开插件页面使用「浏览 115 目录」逐层点选目标目录，"
-                                                 "会自动填好上面的「115 目标目录」。\n"
-                                                 "（开放平台令牌不支持列目录，仅 Cookie 模式可用。）"),
-                                    },
-                                }],
-                            },
+                            {"component": "VCardTitle", "text": "⚙️ 扫描与重试"},
+                            {"component": "VCardText", "text": "设置媒体类型、扫描频率和秒传失败后的重试策略。"},
                         ],
                     },
                     {
@@ -1144,7 +1152,14 @@ class CloudPush115(_PluginBase):
                             },
                         ],
                     },
-                    # ---------------- qb 下载完成联动 ----------------
+                    {
+                        "component": "VCard",
+                        "props": {"variant": "tonal", "color": "info", "class": "my-3"},
+                        "content": [
+                            {"component": "VCardTitle", "text": "🧲 qBittorrent 下载完成联动（可选）"},
+                            {"component": "VCardText", "text": "开启后，下载完成自动秒传；成功时添加「已整理」标签。"},
+                        ],
+                    },
                     {
                         "component": "VRow",
                         "content": [
@@ -1155,10 +1170,7 @@ class CloudPush115(_PluginBase):
                                     "component": "VAlert",
                                     "props": {
                                         "type": "info", "variant": "tonal",
-                                        "text": "qb 联动：qBittorrent 下载完成后立即秒传到 115；"
-                                                "秒传成功即给种子打上「已整理」标签，"
-                                                "使 MoviePilot 跳过整理（脱离整理队列）；"
-                                                "秒传失败则不打标签，交由 MP 正常整理。",
+                                        "text": "qBittorrent 下载完成后立即秒传；成功时标记已整理。未使用 qB 联动时，无需填写下方字段。",
                                     },
                                 }],
                             },
@@ -1277,10 +1289,8 @@ class CloudPush115(_PluginBase):
             "enabled": False,
             "onlyonce": False,
             "notify": False,
-            "login_mode": "cookie",
             "cookie": "",
             "user_agent": "",
-            "access_token": "",
             "watch_paths": "",
             "remote_dir": "",
             "extensions": "",
