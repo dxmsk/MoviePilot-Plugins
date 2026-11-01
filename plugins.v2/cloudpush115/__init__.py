@@ -40,7 +40,7 @@ class CloudPush115(_PluginBase):
         "不下载、不上传文件本体。支持秒传失败自定义间隔重试，全程只读、不移动原始文件。"
     )
     plugin_icon = "clouddisk.png"
-    plugin_version = "1.5.2"
+    plugin_version = "1.5.3"
     plugin_author = "Minis"
     author_url = "https://github.com/jxxghp/MoviePilot"
     plugin_config_prefix = "cloudpush115_"
@@ -1185,26 +1185,27 @@ class CloudPush115(_PluginBase):
         }]}
 
     def get_form(self) -> Tuple[List[dict], Dict[str, Any]]:
-        import os
-        local_entries = self._local_current_entries()
-        remote_entries = self._remote_current_entries()
-        local_selected = [p.strip() for p in (self._watch_paths or "").replace("，", ",").replace("\n", ",").split(",") if p.strip()]
-        local_parent = (os.path.dirname(self._local_browse_path.rstrip("/")) or "/") if self._local_browse_path else None
-        if self._local_browse_path and local_parent == self._local_browse_path:
-            local_parent = ""
-        remote_parent = self._remote_parent_map.get(self._remote_browse_cid) if self._remote_browse_cid != "0" else None
-        parent_path = self._remote_cid_paths.get(str(remote_parent), "/") if remote_parent is not None else None
-        # Keep the existing side-by-side form layout and replace only the two path fields.
-        local_panel = {"component": "div", "content": [
-            {"component": "VAlert", "props": {"type": "success", "variant": "tonal",
-                "text": "当前监控：" + ("，".join(local_selected) if local_selected else "未选择")}},
-            self._local_tree_panel(),
-        ]}
-        remote_panel = {"component": "div", "content": [
-            {"component": "VAlert", "props": {"type": "info", "variant": "tonal",
-                "text": "当前目标：" + (self._remote_dir or "/（网盘根目录）")}},
-            self._remote_tree_panel(),
-        ]}
+        # Stable V2 layout: plain path fields, no directory scanning or network calls.
+        local_panel = {
+            "component": "VTextField",
+            "props": {
+                "model": "watch_paths",
+                "label": "监控的本地目录（多个用逗号或换行分隔）",
+                "placeholder": "/media/电影,/media/电视剧",
+                "hint": "填写 MoviePilot 容器内可见的绝对路径；只读取文件，不移动、修改或删除原文件。",
+                "persistent-hint": True,
+            },
+        }
+        remote_panel = {
+            "component": "VTextField",
+            "props": {
+                "model": "remote_dir",
+                "label": "115 目标目录",
+                "placeholder": "/媒体/电影",
+                "hint": "填写 115 网盘目录路径；留空使用网盘根目录，目录不存在时秒传会自动创建。",
+                "persistent-hint": True,
+            },
+        }
         return [
             {
                 "component": "VForm",
