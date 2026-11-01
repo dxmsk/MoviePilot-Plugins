@@ -41,7 +41,7 @@ class CloudPush115(_PluginBase):
         "不下载、不上传文件本体。支持秒传失败自定义间隔重试，全程只读、不移动原始文件。"
     )
     plugin_icon = "clouddisk.png"
-    plugin_version = "1.3.2"
+    plugin_version = "1.3.3"
     plugin_author = "Minis"
     author_url = "https://github.com/jxxghp/MoviePilot"
     plugin_config_prefix = "cloudpush115_"
@@ -284,6 +284,15 @@ class CloudPush115(_PluginBase):
             p = str(local_path)
             self._done.add(p)
             self._queue.remove(p)
+            try:
+                size = local_path.stat().st_size
+            except (OSError, AttributeError):
+                size = 0
+            self._append_history({
+                "name": getattr(local_path, "name", str(local_path)),
+                "path": p,
+                "size": size,
+            }, result, True)
         return result
 
     def _qb_tick(self) -> None:
@@ -703,6 +712,7 @@ class CloudPush115(_PluginBase):
             "done_count": len(self._done),
             "retry_count": len(self._queue) if self._queue else 0,
             "last_run": self._last_run,
+            "history": self._history[-100:],
             "retry_queue": (self._queue.to_list() if self._queue else []),
         }
 
@@ -1282,11 +1292,12 @@ class CloudPush115(_PluginBase):
                         "props": {
                             "headers": [
                                 {"title": "文件", "key": "name"},
+                                {"title": "原始路径", "key": "path"},
                                 {"title": "大小", "key": "size"},
                                 {"title": "结果", "key": "result"},
                                 {"title": "时间", "key": "time"},
                             ],
-                            "items": self._history[-15:],
+                            "items": self._history[-50:],
                             "density": "compact",
                             "hover": True,
                         },
