@@ -6,22 +6,48 @@ MoviePilot 插件页通过 `VHtml` 组件渲染本片段，片段内部直接调
 """
 
 DIR_BROWSER_HTML = r"""
-<div id="v115-dirbrowser" style="font-family:-apple-system,system-ui,sans-serif">
-  <div style="display:flex;align-items:center;gap:8px;margin-bottom:8px">
-    <span style="font-weight:600">📁 115 目录</span>
-    <span id="v115-path" style="font-size:13px;color:#666;flex:1;word-break:break-all">/</span>
+<div id="v115-dirbrowser" class="v115db">
+  <div class="v115db-pathbar">
+    <span class="v115db-pathic">📍</span>
+    <span id="v115-path" class="v115db-path">/</span>
   </div>
-  <div style="display:flex;gap:8px;margin-bottom:10px;flex-wrap:wrap">
-    <button onclick="v115Go('0','/')" style="padding:5px 12px;border:1px solid #ccc;border-radius:6px;background:#fff;cursor:pointer">🏠 根目录</button>
-    <button id="v115-up" onclick="v115Up()" style="padding:5px 12px;border:1px solid #ccc;border-radius:6px;background:#fff;cursor:pointer">⬆ 上级</button>
-    <button id="v115-reload" onclick="v115Reload()" style="padding:5px 12px;border:1px solid #ccc;border-radius:6px;background:#fff;cursor:pointer">🔄 刷新</button>
-    <button onclick="v115Pick()" style="padding:5px 12px;border:none;border-radius:6px;background:#1976d2;color:#fff;cursor:pointer">✅ 选择当前目录</button>
+  <div class="v115db-tools">
+    <button onclick="v115Go('0','/')" class="v115db-btn">🏠 根目录</button>
+    <button id="v115-up" onclick="v115Up()" class="v115db-btn">⬆ 上级</button>
+    <button id="v115-reload" onclick="v115Reload()" class="v115db-btn">🔄 刷新</button>
+    <button onclick="v115Pick()" class="v115db-btn v115db-btn-primary">✅ 选择当前目录</button>
   </div>
-  <div id="v115-list" style="border:1px solid #e0e0e0;border-radius:8px;max-height:320px;overflow:auto">
-    <div style="padding:16px;color:#888">加载中…</div>
+  <div id="v115-list" class="v115db-list">
+    <div class="v115db-empty">加载中…</div>
   </div>
-  <div id="v115-msg" style="margin-top:8px;font-size:13px"></div>
+  <div id="v115-msg" class="v115db-msg"></div>
 </div>
+<style>
+.v115db{font-family:-apple-system,BlinkMacSystemFont,system-ui,sans-serif}
+.v115db-pathbar{display:flex;align-items:center;gap:8px;margin-bottom:10px;padding:8px 12px;border-radius:10px;
+  background:linear-gradient(135deg,#eef4ff,#f3eefc);border:1px solid rgba(10,132,255,.15)}
+.v115db-pathic{font-size:14px}
+.v115db-path{font-size:13px;color:#445;flex:1;word-break:break-all;font-weight:500}
+.v115db-tools{display:flex;gap:8px;margin-bottom:12px;flex-wrap:wrap}
+.v115db-btn{padding:7px 14px;border:1px solid #dfe2f0;border-radius:9px;background:#fff;cursor:pointer;font-size:13px;
+  color:#445;transition:all .15s;font-weight:500}
+.v115db-btn:hover{border-color:#0a84ff;color:#0a84ff;box-shadow:0 2px 8px -3px rgba(10,132,255,.4)}
+.v115db-btn-primary{border:none;color:#fff;background:linear-gradient(135deg,#0a84ff,#5e5ce6);
+  box-shadow:0 5px 14px -5px rgba(94,92,230,.6)}
+.v115db-btn-primary:hover{color:#fff;transform:translateY(-1px);box-shadow:0 8px 18px -5px rgba(94,92,230,.7)}
+.v115db-list{border:1px solid #eceef5;border-radius:12px;max-height:340px;overflow:auto;background:#fff}
+.v115db-list::-webkit-scrollbar{width:8px}
+.v115db-list::-webkit-scrollbar-thumb{background:#d6d9ea;border-radius:8px}
+.v115db-empty{padding:28px 16px;color:#99a;text-align:center;font-size:13px}
+.v115db-item{padding:11px 16px;border-bottom:1px solid #f4f5fa;cursor:pointer;display:flex;align-items:center;gap:10px;
+  transition:background .12s}
+.v115db-item:last-child{border-bottom:none}
+.v115db-item:hover{background:linear-gradient(90deg,rgba(10,132,255,.07),rgba(94,92,230,.04))}
+.v115db-item .ic{font-size:18px}
+.v115db-item .nm{flex:1;font-size:14px;color:#334;word-break:break-all}
+.v115db-item .ar{color:#bbc;font-size:16px}
+.v115db-msg{margin-top:10px;font-size:13px;line-height:1.6}
+</style>
 <script>
 (function(){
   var API = "/api/v1/plugin/__PREFIX__";
@@ -33,13 +59,13 @@ DIR_BROWSER_HTML = r"""
   window.v115Load = function(cid, path){
     var list = document.getElementById("v115-list");
     var msg  = document.getElementById("v115-msg");
-    list.innerHTML = '<div style="padding:16px;color:#888">加载中…</div>';
+    list.innerHTML = '<div class="v115db-empty">加载中…</div>';
     msg.textContent = "";
     fetch(API + "/browse?cid=" + encodeURIComponent(cid), {credentials:"include"})
       .then(function(r){ return r.json(); })
       .then(function(d){
         if(!d.success){
-          list.innerHTML = '<div style="padding:16px;color:#c62828">' + esc(d.message||"加载失败") + '</div>';
+          list.innerHTML = '<div class="v115db-empty" style="color:#e5484d">' + esc(d.message||"加载失败") + '</div>';
           return;
         }
         state.cid = String(cid);
@@ -47,21 +73,20 @@ DIR_BROWSER_HTML = r"""
         document.getElementById("v115-path").textContent = path;
         var es = d.entries || [];
         if(!es.length){
-          list.innerHTML = '<div style="padding:16px;color:#888">（此目录下没有子目录）</div>';
+          list.innerHTML = '<div class="v115db-empty">（此目录下没有子目录）</div>';
           return;
         }
         var html = "";
         es.forEach(function(e){
-          html += '<div onclick="v115Enter(\'' + esc(e.cid) + '\',\'' +
-                  esc((path==="/"?"":path) + "/" + e.name).replace(/'/g,"\\'") + '\')" ' +
-                  'style="padding:9px 14px;border-bottom:1px solid #f0f0f0;cursor:pointer;display:flex;align-items:center;gap:8px">' +
-                  '<span>📂</span><span style="flex:1">' + esc(e.name) + '</span>' +
-                  '<span style="color:#999;font-size:12px">›</span></div>';
+          html += '<div class="v115db-item" onclick="v115Enter(\'' + esc(e.cid) + '\',\'' +
+                  esc((path==="/"?"":path) + "/" + e.name).replace(/'/g,"\\'") + '\')">' +
+                  '<span class="ic">📁</span><span class="nm">' + esc(e.name) + '</span>' +
+                  '<span class="ar">›</span></div>';
         });
         list.innerHTML = html;
       })
       .catch(function(e){
-        list.innerHTML = '<div style="padding:16px;color:#c62828">请求失败: ' + esc(e) + '</div>';
+        list.innerHTML = '<div class="v115db-empty" style="color:#e5484d">请求失败: ' + esc(e) + '</div>';
       });
   };
 
