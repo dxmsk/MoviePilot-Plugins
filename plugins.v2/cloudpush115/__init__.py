@@ -40,7 +40,7 @@ class CloudPush115(_PluginBase):
         "不下载、不上传文件本体。支持秒传失败自定义间隔重试，全程只读、不移动原始文件。"
     )
     plugin_icon = "clouddisk.png"
-    plugin_version = "1.4.6"
+    plugin_version = "1.4.8"
     plugin_author = "Minis"
     author_url = "https://github.com/jxxghp/MoviePilot"
     plugin_config_prefix = "cloudpush115_"
@@ -115,6 +115,11 @@ class CloudPush115(_PluginBase):
         raw_paths = config.get("watch_paths") or ""
         self._watch_paths = ",".join(str(p) for p in raw_paths) if isinstance(raw_paths, (list, tuple, set)) else str(raw_paths)
         self._remote_dir = config.get("remote_dir") or ""
+        self._local_browse_path = config.get("local_browse_path") or ""
+        self._remote_browse_cid = str(config.get("remote_browse_cid") or "0")
+        self._remote_browse_path = config.get("remote_browse_path") or "/"
+        self._remote_cid_paths = {"0": "/"}
+        self._remote_parent_map = {"0": None}
         self._remote_dir_options_cache = [{"title": "🏠 根目录 /", "value": "/"}]
         threading.Thread(target=self._warm_directory_options, daemon=True,
                          name="CloudPush115DirectoryCache").start()
@@ -660,7 +665,21 @@ class CloudPush115(_PluginBase):
                 "endpoint": self.api_selectlocal,
                 "methods": ["GET", "POST"],
                 "auth": "bear",
-                "summary": "保存本地监控目录",
+                "summary": "将当前本地目录设为监控目录",
+            },
+            {
+                "path": "/localenter",
+                "endpoint": self.api_localenter,
+                "methods": ["GET", "POST"],
+                "auth": "bear",
+                "summary": "打开本地目录的下一层",
+            },
+            {
+                "path": "/remoteenter",
+                "endpoint": self.api_remoteenter,
+                "methods": ["GET", "POST"],
+                "auth": "bear",
+                "summary": "打开115网盘目录的下一层",
             },
         ]
 
@@ -810,28 +829,68 @@ class CloudPush115(_PluginBase):
             return {"success": False, "message": f"已加入内存但写配置失败: {e}", "paths": cur}
         return {"success": True, "message": f"已加入监控: {path}", "paths": cur}
 
+    def api_localenter(self, path: str = "") -> Dict[str, Any]:
+        """设置本地浏览当前位置；下一次打开设置页只显示此目录的直属子目录。"""
+        import os
+        path = os.path.abspath((path or "").strip()) if path else ""
+        if path and not os.path.isdir(path):
+            return {"success": False, "message": f"目录不存在：{path}"}
+        self._local_browse_path = path
+        try:
+            self.update_config(self._current_config())
+            return {"success": True, "message": path or "已回到挂载根目录", "path": path}
+        except Exception as e:
+            return {"success": False, "message": f"保存浏览位置失败：{e}"}
+
+    def api_remoteenter(self, cid: str = "0", path: str = "/") -> Dict[str, Any]:
+        """设置 115 网盘浏览当前位置；下一次打开设置页只显示该层目录。"""
+        if not self._cookie:
+            return {"success": False, "message": "请先保存 115 网页 Cookie"}
+        cid = str(cid or "0")
+        try:
+            client = P115WebClient(cookie=self._cookie, user_agent=self._user_agent)
+            data = client.browse(cid)
+            self._remote_browse_cid = cid
+            self._remote_browse_path = path or "/"
+            self._remote_cid_paths[cid] = self._remote_browse_path
+            entries = data.get("entries", [])
+            for entry in entries:
+                child_cid = str(entry.get("cid", ""))
+                child_path = (self._remote_browse_path.rstrip("/") + "/" + str(entry.get("name", ""))).replace("//", "/")
+                if self._remote_browse_path == "/": child_path = "/" + str(entry.get("name", ""))
+                entry["path"] = child_path
+                if child_cid:
+                    self._remote_cid_paths[child_cid] = child_path
+                    self._remote_parent_map[child_cid] = cid
+            self._remote_dir_options_cache = entries
+            self.update_config(self._current_config())
+            return {"success": True, "cid": cid, "entries": data.get("entries", [])}
+        except Exception as e:
+            return {"success": False, "message": f"打开网盘目录失败：{e}"}
+
     def api_selectlocal(self, path: str = "") -> Dict[str, Any]:
         """将目录选择器所选路径设为唯一监控目录。"""
         import os
         path = os.path.abspath((path or "").strip()) if path else ""
         if not path or not os.path.isdir(path):
             return {"success": False, "message": "请选择有效的本地目录"}
-        self._watch_paths = path
+        current = [p.strip() for p in (self._watch_paths or "").replace("，", ",").replace("\n", ",").split(",") if p.strip()]
+        if path not in current:
+            current.append(path)
+        self._watch_paths = ",".join(current)
         try:
             self.update_config(self._current_config())
-            return {"success": True, "message": f"已设置本地监控目录：{path}", "path": path}
+            return {"success": True, "message": f"已添加监控目录：{path}", "path": path, "paths": current}
         except Exception as e:
             return {"success": False, "message": f"保存目录失败：{e}"}
 
-    def api_selectremote(self, cid: str = "0") -> Dict[str, Any]:
+    def api_selectremote(self, cid: str = "0", path: str = "") -> Dict[str, Any]:
         """保存用户选中的 115 目录路径。"""
         if not self._cookie:
             return {"success": False, "message": "请先填写并保存 115 网页 Cookie"}
         try:
-            client = P115WebClient(cookie=self._cookie, user_agent=self._user_agent)
-            path = client.path_of_cid(cid or "0")
-            if not path:
-                return {"success": False, "message": "目录路径解析失败，请从网盘根目录重新展开选择"}
+            path = (path or self._remote_cid_paths.get(str(cid))
+                    or self._remote_browse_path or "/")
             self._remote_dir = path
             self.update_config(self._current_config())
             return {"success": True, "message": f"已保存目标目录：{path}", "remote_dir": path}
@@ -848,6 +907,9 @@ class CloudPush115(_PluginBase):
             "user_agent": self._user_agent,
             "watch_paths": [p.strip() for p in self._watch_paths.replace("，", ",").replace("\n", ",").split(",") if p.strip()],
             "remote_dir": self._remote_dir,
+            "local_browse_path": self._local_browse_path,
+            "remote_browse_cid": self._remote_browse_cid,
+            "remote_browse_path": self._remote_browse_path,
             "extensions": self._extensions,
             "retry_interval": self._retry_interval,
             "max_attempts": self._max_attempts,
@@ -913,7 +975,7 @@ class CloudPush115(_PluginBase):
                 f"待重试: {len(self._queue) if self._queue else 0}\n"
                 f"最近扫描: {self._last_run or '尚未运行'}")
 
-    def _local_dir_items(self, max_items: int = 1200, max_depth: int = 0) -> List[Dict[str, str]]:
+    def _local_dir_items(self, max_items: int = 120, max_depth: int = 0) -> List[Dict[str, str]]:
         """缓存扫描 MP 本地配置根、Docker 所有挂载点和已选路径。"""
         import os, time
         cache = getattr(self, "_local_dir_cache", {})
@@ -1003,35 +1065,39 @@ class CloudPush115(_PluginBase):
         return result
 
     def _warm_directory_options(self) -> None:
-        """后台预热网盘目录选项；插件设置页本身不等待网络。"""
+        """后台生成有限规模的网盘折叠树；设置页面构建不等待网络。"""
         if not self._cookie:
             return
-        items = ["/"]
-        queue = [("0", "/", 0)]
-        seen = {"0"}
-        try:
-            client = P115WebClient(cookie=self._cookie, user_agent=self._user_agent)
-            while queue and len(items) < 50:
-                cid, prefix, depth = queue.pop(0)
-                if depth >= 2:
-                    continue
-                for entry in client.browse(cid).get("entries", []):
-                    path = (prefix.rstrip("/") + "/" + entry["name"]) or "/"
-                    items.append(path)
-                    child_id = str(entry.get("cid", ""))
-                    if child_id and child_id not in seen:
-                        seen.add(child_id)
-                        queue.append((child_id, path, depth + 1))
-                    if len(items) >= 50:
-                        break
-        except Exception as e:
-            logger.warning(f"{self.LOG}后台加载网盘目录选项失败: {e}")
-        if self._remote_dir:
-            items.append(self._remote_dir)
-        self._remote_dir_options_cache = [
-            {"title": ("🏠 根目录 /" if p == "/" else p), "value": p}
-            for p in sorted(set(items))
-        ]
+        client = P115WebClient(cookie=self._cookie, user_agent=self._user_agent)
+        budget = [100]
+        base_path = getattr(self, "_remote_browse_path", "/") or "/"
+        start_cid = str(getattr(self, "_remote_browse_cid", "0") or "0")
+
+        def load(cid: str, path: str, depth: int) -> List[Dict[str, Any]]:
+            if budget[0] <= 0:
+                return []
+            try:
+                entries = client.browse(cid).get("entries", [])
+            except Exception as e:
+                logger.warning(f"{self.LOG}读取115目录失败 cid={cid}: {e}")
+                return []
+            result = []
+            for entry in entries:
+                if budget[0] <= 0: break
+                budget[0] -= 1
+                child_cid = str(entry.get("cid", ""))
+                name = str(entry.get("name", ""))
+                child_path = (path.rstrip("/") + "/" + name).replace("//", "/")
+                if path == "/": child_path = "/" + name
+                entry["path"] = child_path
+                entry["children"] = load(child_cid, child_path, depth + 1) if child_cid and depth < 3 else []
+                if child_cid:
+                    self._remote_cid_paths[child_cid] = child_path
+                    self._remote_parent_map[child_cid] = cid
+                result.append(entry)
+            return result
+
+        self._remote_dir_options_cache = load(start_cid, base_path, 0)
 
     def _remote_dir_items(self) -> List[Dict[str, str]]:
         """读取后台缓存；表单构建绝不访问网络。"""
@@ -1042,7 +1108,139 @@ class CloudPush115(_PluginBase):
             items.append({"title": self._remote_dir, "value": self._remote_dir})
         return items
 
+    def _tree_node(self, entry: Dict[str, Any], remote: bool = False,
+                   depth: int = 0, budget: Optional[List[int]] = None) -> Dict[str, Any]:
+        """原生折叠目录节点：子目录藏在VExpansionPanel里，不摊平。"""
+        import os
+        if budget is None: budget = [1500]
+        path = str(entry.get("path", "") or "")
+        cid = str(entry.get("cid", "0") or "0")
+        name = str(entry.get("name", path if not remote else cid))
+        params = {"cid": cid, "path": path or "/"} if remote else {"path": path}
+        endpoint = "/selectremote" if remote else "/selectlocal"
+        body = [{"component": "VBtn", "props": {"size": "small", "color": "success", "variant": "tonal", "prepend-icon": "mdi-check"},
+                 "text": "选此目录", "events": {"click": {"api": f"plugin/{type(self).__name__}{endpoint}", "method": "post", "params": params}}}]
+        children = entry.get("children", []) if remote else []
+        if not remote and depth < 4 and budget[0] > 0:
+            try:
+                with os.scandir(path) as it:
+                    children = [{"name": e.name, "path": e.path} for e in sorted(it, key=lambda x:x.name.casefold())
+                                if not e.name.startswith(".") and e.is_dir(follow_symlinks=False)]
+            except OSError:
+                children = []
+        nested = []
+        for child in children:
+            if budget[0] <= 0: break
+            budget[0] -= 1
+            nested.append(self._tree_node(child, remote=remote, depth=depth+1, budget=budget))
+        if nested:
+            body.append({"component": "VExpansionPanels", "props": {"multiple": True, "variant": "accordion"}, "content": nested})
+        return {"component": "VExpansionPanel", "content": [
+            {"component": "VExpansionPanelTitle", "text": "📁 " + name},
+            {"component": "VExpansionPanelText", "content": body},
+        ]}
+
+    def _local_tree_panel(self) -> Dict[str, Any]:
+        budget = [200]
+        roots = self._local_current_entries()
+        return {"component": "VExpansionPanels", "props": {"multiple": True, "variant": "accordion"},
+                "content": [self._tree_node(x, budget=budget) for x in roots[:120]]}
+
+    def _remote_tree_panel(self) -> Dict[str, Any]:
+        budget = [300]
+        roots = self._remote_current_entries()
+        return {"component": "VExpansionPanels", "props": {"multiple": True, "variant": "accordion"},
+                "content": [self._tree_node(x, remote=True, budget=budget) for x in roots[:80]]}
+
+    def _local_current_entries(self) -> List[Dict[str, str]]:
+        """仅列出当前浏览位置的一层文件夹。根状态只列挂载根和已选路径。"""
+        import os
+        current = getattr(self, "_local_browse_path", "") or ""
+        if not current:
+            entries = []
+            seen = set()
+            for item in self._local_dir_items():
+                path = item.get("value", "")
+                if path and path not in seen:
+                    seen.add(path)
+                    entries.append({"name": path, "path": path})
+            return entries
+        try:
+            with os.scandir(current) as it:
+                return [{"name": e.name, "path": e.path}
+                        for e in sorted(it, key=lambda x: x.name.casefold())
+                        if not e.name.startswith(".") and e.is_dir(follow_symlinks=False)]
+        except OSError:
+            return []
+
+    def _remote_current_entries(self) -> List[Dict[str, Any]]:
+        """只返回用户当前 115 cid 的一层目录缓存。"""
+        return list(getattr(self, "_remote_dir_options_cache", []) or [])
+
+    def _directory_panel(self, title: str, icon: str, enter_api: str, select_api: str,
+                         items: List[Dict[str, Any]], key: str, current: str,
+                         parent_value: Optional[str] = None, parent_path: Optional[str] = None,
+                         remote: bool = False) -> Dict[str, Any]:
+        """构建V2原生目录浏览卡片，每次仅渲染当前层。"""
+        body: List[dict] = []
+        if parent_value is not None:
+            params = {key: parent_value}
+            if remote: params["path"] = parent_path or "/"
+            body.append({"component": "VBtn", "props": {"variant": "text", "prepend-icon": "mdi-arrow-up", "class": "mb-2"},
+                         "text": "返回上级 / 根目录", "events": {"click": {"api": f"plugin/{type(self).__name__}{enter_api}", "method": "post", "params": params}}})
+        body.append({"component": "div", "props": {"class": "text-caption text-medium-emphasis mb-2"}, "text": f"当前位置：{current or '/（挂载根目录）'}"})
+        if not items:
+            body.append({"component": "VAlert", "props": {"type": "info", "variant": "tonal", "text": "此处没有可进入的子文件夹。"}})
+        for item in items[:300]:
+            value = item.get("path") if key == "path" else item.get("cid")
+            name = item.get("name") or str(value or "")
+            enter_params = {key: value}
+            select_params = {key: value}
+            if remote:
+                child_path = (current.rstrip("/") + "/" + name).replace("//", "/")
+                if current in ("", "/"):
+                    child_path = "/" + name
+                enter_params["path"] = child_path
+                select_params["path"] = child_path
+            row = {"component": "VRow", "props": {"class": "align-center py-1", "dense": True}, "content": [
+                {"component": "VCol", "props": {"cols": 12, "md": 6}, "content": [{"component": "div", "props": {"class": "text-body-2 text-break"}, "text": "📁 " + name}]},
+                {"component": "VCol", "props": {"cols": 6, "md": 3}, "content": [{"component": "VBtn", "props": {"variant": "tonal", "size": "small", "prepend-icon": "mdi-folder-open"}, "text": "进入", "events": {"click": {"api": f"plugin/{type(self).__name__}{enter_api}", "method": "post", "params": enter_params}}}]},
+                {"component": "VCol", "props": {"cols": 6, "md": 3}, "content": [{"component": "VBtn", "props": {"variant": "tonal", "color": "success", "size": "small", "prepend-icon": "mdi-check"}, "text": "选此目录", "events": {"click": {"api": f"plugin/{type(self).__name__}{select_api}", "method": "post", "params": select_params}}}]},
+            ]}
+            body.append(row)
+        return {"component": "VExpansionPanels", "props": {"variant": "accordion", "class": "mb-3"}, "content": [{
+            "component": "VExpansionPanel", "content": [
+                {"component": "VExpansionPanelTitle", "text": f"{icon} {title}"},
+                {"component": "VExpansionPanelText", "content": body},
+            ]
+        }]}
+
     def get_form(self) -> Tuple[List[dict], Dict[str, Any]]:
+        import os
+        local_entries = self._local_current_entries()
+        remote_entries = self._remote_current_entries()
+        local_selected = [p.strip() for p in (self._watch_paths or "").replace("，", ",").replace("\n", ",").split(",") if p.strip()]
+        local_parent = (os.path.dirname(self._local_browse_path.rstrip("/")) or "/") if self._local_browse_path else None
+        if self._local_browse_path and local_parent == self._local_browse_path:
+            local_parent = ""
+        remote_parent = self._remote_parent_map.get(self._remote_browse_cid) if self._remote_browse_cid != "0" else None
+        parent_path = self._remote_cid_paths.get(str(remote_parent), "/") if remote_parent is not None else None
+        local_panel = {"component": "VCard", "props": {"variant": "outlined", "class": "mb-3"}, "content": [
+            {"component": "VCardTitle", "text": "💻 本地文件夹 · 当前层浏览"},
+            {"component": "VCardSubtitle", "text": "已选监控：" + ("，".join(local_selected) if local_selected else "未选择")},
+            {"component": "VCardText", "content": [
+                {"component": "VAlert", "props": {"type": "info", "variant": "tonal", "text": "点「进入」后重新打开本设置页显示下一层；点「选此目录」加入监控。"}},
+                self._local_tree_panel(),
+            ]},
+        ]}
+        remote_panel = {"component": "VCard", "props": {"variant": "outlined", "class": "mb-3"}, "content": [
+            {"component": "VCardTitle", "text": "☁️ 115网盘 · 当前层浏览"},
+            {"component": "VCardSubtitle", "text": "已选目标：" + (self._remote_dir or "/（网盘根目录）")},
+            {"component": "VCardText", "content": [
+                {"component": "VAlert", "props": {"type": "info", "variant": "tonal", "text": "点「进入」后重新打开本设置页显示下一层；Cookie 需先保存。"}},
+                self._remote_tree_panel(),
+            ]},
+        ]}
         return [
             {
                 "component": "VForm",
@@ -1105,60 +1303,11 @@ class CloudPush115(_PluginBase):
                         ],
                     },
                     {
-                        "component": "VCard",
-                        "props": {"variant": "tonal", "color": "success", "class": "my-3"},
-                        "content": [
-                            {"component": "VCardTitle", "text": "💻 本地文件夹"},
-                            {"component": "VCardText", "text": "从容器可见的目录列表中搜索并多选，选中的路径会用于本地媒体扫描。"},
-                        ],
-                    },
-                    {
-                        "component": "VCard",
-                        "props": {"variant": "tonal", "color": "info", "class": "my-3"},
-                        "content": [
-                            {"component": "VCardTitle", "text": "☁️ 115 网盘目标文件夹"},
-                            {"component": "VCardText", "text": "先保存 Cookie，再重新打开插件设置页；可搜索并选择已存在的网盘目录。"},
-                        ],
-                    },
-                    {
                         "component": "VRow",
+                        "props": {"class": "mt-2"},
                         "content": [
-                            {
-                                "component": "VCol",
-                                "props": {"cols": 12, "md": 6},
-                                "content": [{
-                                    "component": "VSelect",
-                                    "props": {
-                                        "model": "watch_paths",
-                                        "label": "本地监控目录（搜索并多选）",
-                                        "items": self._local_dir_items(),
-                                        "item-title": "title",
-                                        "item-value": "value",
-                                        "multiple": True,
-                                        "chips": True,
-                                        "closable-chips": True,
-                                        "hint": "搜索目录名称或完整路径，可选择多个目录；仅读取文件。保存后启用扫描。",
-                                        "persistent-hint": True,
-                                    },
-                                }],
-                            },
-                            {
-                                "component": "VCol",
-                                "props": {"cols": 12, "md": 6},
-                                "content": [{
-                                    "component": "VSelect",
-                                    "props": {
-                                        "model": "remote_dir",
-                                        "label": "115 目标目录（搜索并选择）",
-                                        "items": self._remote_dir_items(),
-                                        "item-title": "title",
-                                        "item-value": "value",
-                                        "hint": "先保存 Cookie，再打开设置页加载网盘目录；支持搜索，默认根目录 /。",
-                                        "persistent-hint": True,
-                                        "clearable": True,
-                                    },
-                                }],
-                            },
+                            {"component": "VCol", "props": {"cols": 12, "md": 6}, "content": [local_panel]},
+                            {"component": "VCol", "props": {"cols": 12, "md": 6}, "content": [remote_panel]},
                         ],
                     },
 
@@ -1387,6 +1536,8 @@ class CloudPush115(_PluginBase):
             "user_agent": "",
             "watch_paths": [],
             "remote_dir": "",
+            "local_browse_path": "",
+            "remote_browse_cid": "0",
             "extensions": "",
             "scan_interval": 60,
             "retry_interval": 600,
