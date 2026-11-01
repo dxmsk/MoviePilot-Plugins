@@ -124,12 +124,11 @@ class RetryQueue:
         self.pending.pop(path, None)
 
     def due(self, now: Optional[float] = None) -> List[Dict[str, Any]]:
-        """返回当前到期、可以重试的记录。"""
+        """返回当前到期项；达到最大尝试次数时立即清理（0=无限）。"""
         now = now if now is not None else time.time()
         out = []
         for path, item in list(self.pending.items()):
             if self.max_attempts and int(item.get("attempts", 0)) > self.max_attempts:
-                # 超过最大次数，直接丢弃
                 self.pending.pop(path, None)
                 continue
             if float(item.get("next_retry", 0)) <= now:
