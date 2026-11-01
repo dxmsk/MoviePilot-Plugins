@@ -22,6 +22,7 @@ from ._crypto import (
     ecdh_aes_decrypt,
     make_upload_payload,
 )
+from .filehash import sha1_file
 
 # 网页 / proapi 基础域名
 WEBAPI = "https://webapi.115.com"
@@ -462,15 +463,7 @@ class P115WebClient:
     # ---------------- 秒传 ---------------- #
     @staticmethod
     def _sha1_file(path: Path, chunk: int = 1 << 20) -> str:
-        import hashlib
-        h = hashlib.sha1()
-        with open(path, "rb") as f:
-            while True:
-                block = f.read(chunk)
-                if not block:
-                    break
-                h.update(block)
-        return h.hexdigest().upper()
+        return sha1_file(path, chunk_size=chunk)
 
     @staticmethod
     def _calc_sign_val(path: Path, sign_check: str) -> str:
@@ -542,7 +535,8 @@ class P115WebClient:
                     "message": "文件不存在或不是文件", "sha1": "", "size": 0,
                     "need_check": False}
         try:
-            size = path.stat().st_size
+            initial_stat = path.stat()
+            size = initial_stat.st_size
         except OSError as exc:
             return {"ok": False, "reuse": False, "pickcode": "",
                     "message": f"读取文件失败: {exc}", "sha1": "", "size": 0,
@@ -557,6 +551,18 @@ class P115WebClient:
                     "need_check": False}
 
         sha1 = self._sha1_file(path)
+        try:
+            final_stat = path.stat()
+            if (final_stat.st_size, final_stat.st_mtime_ns, getattr(final_stat, "st_ino", 0)) != (
+                    initial_stat.st_size, initial_stat.st_mtime_ns,
+                    getattr(initial_stat, "st_ino", 0)):
+                return {"ok": False, "reuse": False, "pickcode": "",
+                        "message": "文件在秒传计算期间发生变化，请下轮重试",
+                        "sha1": "", "size": final_stat.st_size, "need_check": False}
+        except OSError as exc:
+            return {"ok": False, "reuse": False, "pickcode": "",
+                    "message": f"秒传期间读取文件状态失败: {exc}",
+                    "sha1": "", "size": size, "need_check": False}
         payload = {
             "fileid": sha1,
             "filename": path.name,
