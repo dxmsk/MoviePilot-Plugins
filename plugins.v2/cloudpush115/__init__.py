@@ -41,7 +41,7 @@ class CloudPush115(_PluginBase):
         "不下载、不上传文件本体。支持秒传失败自定义间隔重试，全程只读、不移动原始文件。"
     )
     plugin_icon = "clouddisk.png"
-    plugin_version = "1.5.4"
+    plugin_version = "1.5.5"
     plugin_author = "Minis"
     author_url = "https://github.com/jxxghp/MoviePilot"
     plugin_config_prefix = "cloudpush115_"
@@ -571,6 +571,7 @@ class CloudPush115(_PluginBase):
             "time": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
         })
         self._history = self._history[-500:]
+        self._persist()
 
     # ------------------------------------------------------------------ #
     # 通知
@@ -1536,6 +1537,20 @@ class CloudPush115(_PluginBase):
             "qb_interval": 10,
             "qb_settle": 5,
         }
+
+    def get_dashboard_meta(self) -> List[Dict[str, str]]:
+        """声明动态主面板，避免详情页只显示首次加载快照。"""
+        return [{"key": "main", "name": "115秒传主面板"}]
+
+    def get_dashboard(self, key: str = "main", **kwargs) -> Optional[Tuple[Dict[str, Any], Dict[str, Any], List[dict]]]:
+        """主面板每10秒重新读取当前历史、队列和运行状态。"""
+        if key not in ("", "main"):
+            return None
+        return (
+            {"cols": 12, "sm": 12, "md": 12, "lg": 12},
+            {"title": "115网盘秒传", "subtitle": "实时秒传记录与qB联动状态", "refresh": 10, "border": True},
+            self.get_page(),
+        )
 
     def get_page(self) -> List[dict]:
         history = list(reversed(self._history[-100:]))
