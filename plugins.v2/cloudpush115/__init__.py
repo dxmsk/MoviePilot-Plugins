@@ -40,7 +40,7 @@ class CloudPush115(_PluginBase):
         "不下载、不上传文件本体。支持秒传失败自定义间隔重试，全程只读、不移动原始文件。"
     )
     plugin_icon = "clouddisk.png"
-    plugin_version = "1.4.9"
+    plugin_version = "1.5.0"
     plugin_author = "Minis"
     author_url = "https://github.com/jxxghp/MoviePilot"
     plugin_config_prefix = "cloudpush115_"
@@ -975,7 +975,7 @@ class CloudPush115(_PluginBase):
                 f"待重试: {len(self._queue) if self._queue else 0}\n"
                 f"最近扫描: {self._last_run or '尚未运行'}")
 
-    def _local_dir_items(self, max_items: int = 120, max_depth: int = 0) -> List[Dict[str, str]]:
+    def _local_dir_items(self, max_items: int = 10**9, max_depth: int = 0) -> List[Dict[str, str]]:
         """缓存扫描 MP 本地配置根、Docker 所有挂载点和已选路径。"""
         import os, time
         cache = getattr(self, "_local_dir_cache", {})
@@ -1069,7 +1069,7 @@ class CloudPush115(_PluginBase):
         if not self._cookie:
             return
         client = P115WebClient(cookie=self._cookie, user_agent=self._user_agent)
-        budget = [100]
+        budget = [10**9]
         base_path = getattr(self, "_remote_browse_path", "/") or "/"
         start_cid = str(getattr(self, "_remote_browse_cid", "0") or "0")
 
@@ -1090,7 +1090,7 @@ class CloudPush115(_PluginBase):
                 child_path = (path.rstrip("/") + "/" + name).replace("//", "/")
                 if path == "/": child_path = "/" + name
                 entry["path"] = child_path
-                entry["children"] = load(child_cid, child_path, depth + 1) if child_cid and depth < 3 else []
+                entry["children"] = load(child_cid, child_path, depth + 1) if child_cid else []
                 if child_cid:
                     self._remote_cid_paths[child_cid] = child_path
                     self._remote_parent_map[child_cid] = cid
@@ -1112,7 +1112,7 @@ class CloudPush115(_PluginBase):
                    depth: int = 0, budget: Optional[List[int]] = None) -> Dict[str, Any]:
         """原生折叠目录节点：子目录藏在VExpansionPanel里，不摊平。"""
         import os
-        if budget is None: budget = [1500]
+        if budget is None: budget = [10**9]
         path = str(entry.get("path", "") or "")
         cid = str(entry.get("cid", "0") or "0")
         name = str(entry.get("name", path if not remote else cid))
@@ -1121,7 +1121,7 @@ class CloudPush115(_PluginBase):
         body = [{"component": "VBtn", "props": {"size": "small", "color": "success", "variant": "tonal", "prepend-icon": "mdi-check"},
                  "text": "选此目录", "events": {"click": {"api": f"plugin/{type(self).__name__}{endpoint}", "method": "post", "params": params}}}]
         children = entry.get("children", []) if remote else []
-        if not remote and depth < 4 and budget[0] > 0:
+        if not remote and budget[0] > 0:
             try:
                 with os.scandir(path) as it:
                     children = [{"name": e.name, "path": e.path} for e in sorted(it, key=lambda x:x.name.casefold())
@@ -1141,16 +1141,16 @@ class CloudPush115(_PluginBase):
         ]}
 
     def _local_tree_panel(self) -> Dict[str, Any]:
-        budget = [200]
+        budget = [10**9]
         roots = self._local_current_entries()
         return {"component": "VExpansionPanels", "props": {"multiple": True, "variant": "accordion"},
-                "content": [self._tree_node(x, budget=budget) for x in roots[:120]]}
+                "content": [self._tree_node(x, budget=budget) for x in roots]}
 
     def _remote_tree_panel(self) -> Dict[str, Any]:
-        budget = [300]
+        budget = [10**9]
         roots = self._remote_current_entries()
         return {"component": "VExpansionPanels", "props": {"multiple": True, "variant": "accordion"},
-                "content": [self._tree_node(x, remote=True, budget=budget) for x in roots[:80]]}
+                "content": [self._tree_node(x, remote=True, budget=budget) for x in roots]}
 
     def _local_current_entries(self) -> List[Dict[str, str]]:
         """仅列出当前浏览位置的一层文件夹。根状态只列挂载根和已选路径。"""
