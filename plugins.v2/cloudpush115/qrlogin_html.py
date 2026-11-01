@@ -10,30 +10,47 @@
 """
 
 QR_LOGIN_HTML = r"""
-<div id="v115-qr" style="font-family:-apple-system,system-ui,sans-serif">
-  <div style="display:flex;gap:12px;align-items:flex-start;flex-wrap:wrap">
-    <div id="v115-qr-box" style="width:160px;height:160px;border:1px dashed #bbb;border-radius:8px;
-         display:flex;align-items:center;justify-content:center;color:#999;font-size:13px;flex:0 0 auto">
-      未生成
+<div id="v115-qr" class="v115qr">
+  <div class="v115qr-row">
+    <div id="v115-qr-box" class="v115qr-box">
+      <span class="v115qr-ph">📷<br>未生成</span>
     </div>
-    <div style="flex:1;min-width:180px">
-      <button id="v115-qr-btn" onclick="v115QrStart()"
-        style="padding:7px 16px;border:none;border-radius:6px;background:#1976d2;color:#fff;cursor:pointer">
-        📱 生成二维码</button>
-      <div id="v115-qr-status" style="margin-top:10px;font-size:13px;color:#555;line-height:1.6">
+    <div class="v115qr-side">
+      <button id="v115-qr-btn" onclick="v115QrStart()" class="v115qr-btn">
+        <span style="font-size:15px">📱</span> 生成二维码</button>
+      <div id="v115-qr-status" class="v115qr-status">
         点击生成二维码，然后用 115 App 扫码。
       </div>
-      <div id="v115-qr-cookie" style="margin-top:10px;display:none">
-        <div style="font-size:13px;color:#333;margin-bottom:6px">📋 已确认登录！请复制 Cookie 填入配置：</div>
-        <div style="font-size:12px;color:#666;line-height:1.7">
-          1. 电脑浏览器登录 <b>115.com</b> → F12 → Network → 刷新 → 点任一请求<br>
-          2. 复制 Request Headers 里的整行 <b>Cookie</b><br>
-          3. 粘贴到「115 网页 Cookie」输入框并保存
-        </div>
+      <div id="v115-qr-cookie" class="v115qr-cookie" style="display:none">
+        <div class="v115qr-ck-t">✅ 已确认登录！请复制 Cookie 填入配置：</div>
+        <ol class="v115qr-ck-ol">
+          <li>电脑浏览器登录 <b>115.com</b> → F12 → Network → 刷新 → 点任一请求</li>
+          <li>复制 Request Headers 里的整行 <b>Cookie</b></li>
+          <li>粘贴到「115 网页 Cookie」输入框并保存</li>
+        </ol>
       </div>
     </div>
   </div>
 </div>
+<style>
+.v115qr{font-family:-apple-system,BlinkMacSystemFont,system-ui,sans-serif}
+.v115qr-row{display:flex;gap:16px;align-items:flex-start;flex-wrap:wrap}
+.v115qr-box{width:168px;height:168px;border-radius:16px;flex:0 0 auto;
+  display:flex;align-items:center;justify-content:center;color:#9aa;font-size:13px;text-align:center;line-height:1.7;
+  background:linear-gradient(135deg,#f5f7ff,#eef0fb);border:1.5px dashed #c3c7e8;box-shadow:inset 0 2px 10px rgba(94,92,230,.08)}
+.v115qr-box img{width:100%;height:100%;object-fit:contain;border-radius:12px}
+.v115qr-ph{font-size:30px}
+.v115qr-side{flex:1;min-width:200px}
+.v115qr-btn{padding:9px 20px;border:none;border-radius:10px;color:#fff;cursor:pointer;font-size:14px;font-weight:600;
+  background:linear-gradient(135deg,#0a84ff,#5e5ce6);box-shadow:0 6px 16px -6px rgba(94,92,230,.6);transition:transform .15s,box-shadow .15s}
+.v115qr-btn:hover{transform:translateY(-2px);box-shadow:0 10px 22px -6px rgba(94,92,230,.7)}
+.v115qr-btn:active{transform:translateY(0)}
+.v115qr-status{margin-top:12px;font-size:13px;color:#667;line-height:1.6}
+.v115qr-cookie{margin-top:12px;padding:12px 14px;border-radius:12px;background:rgba(52,199,89,.08);border:1px solid rgba(52,199,89,.3)}
+.v115qr-ck-t{font-size:13px;font-weight:600;color:#1a7f37;margin-bottom:8px}
+.v115qr-ck-ol{margin:0;padding-left:20px;font-size:12.5px;color:#556;line-height:1.9}
+.v115qr-ck-ol b{color:#0a84ff}
+</style>
 <script>
 (function(){
   var API = "/api/v1/plugin/__PREFIX__";
