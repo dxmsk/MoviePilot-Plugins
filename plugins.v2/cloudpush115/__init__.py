@@ -40,7 +40,7 @@ class CloudPush115(_PluginBase):
         "不下载、不上传文件本体。支持秒传失败自定义间隔重试，全程只读、不移动原始文件。"
     )
     plugin_icon = "clouddisk.png"
-    plugin_version = "1.5.1"
+    plugin_version = "1.5.2"
     plugin_author = "Minis"
     author_url = "https://github.com/jxxghp/MoviePilot"
     plugin_config_prefix = "cloudpush115_"
@@ -94,6 +94,13 @@ class CloudPush115(_PluginBase):
     _history: List[Dict[str, Any]] = []
     _last_run: str = ""
     _running = False
+    # Directory picker navigation state; initialized even before init_plugin().
+    _local_browse_path: str = ""
+    _remote_browse_cid: str = "0"
+    _remote_browse_path: str = "/"
+    _remote_cid_paths: Dict[str, str] = {"0": "/"}
+    _remote_parent_map: Dict[str, Optional[str]] = {"0": None}
+    _remote_dir_options_cache: List[Dict[str, Any]] = []
 
     # ------------------------------------------------------------------ #
     # 生命周期
@@ -121,8 +128,8 @@ class CloudPush115(_PluginBase):
         self._remote_cid_paths = {"0": "/"}
         self._remote_parent_map = {"0": None}
         self._remote_dir_options_cache = [{"title": "🏠 根目录 /", "value": "/"}]
-        threading.Thread(target=self._warm_directory_options, daemon=True,
-                         name="CloudPush115DirectoryCache").start()
+        # Do not block plugin/settings load with a remote directory request.
+        # The current layer is loaded only when the browser endpoint is called.
         self._extensions = config.get("extensions") or ""
         self._retry_interval = max(int(config.get("retry_interval") or 600), 30)
         self._max_attempts = max(int(config.get("max_attempts") or 0), 0)
@@ -1098,6 +1105,7 @@ class CloudPush115(_PluginBase):
 
     def _local_tree_panel(self) -> Dict[str, Any]:
         """Render only mount roots or the current folder's immediate children."""
+        import os
         current = getattr(self, "_local_browse_path", "") or ""
         parent = (os.path.dirname(current.rstrip("/")) or "/") if current else None
         return self._directory_panel("本地目录", "📁", "/localenter", "/selectlocal",
