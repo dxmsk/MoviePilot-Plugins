@@ -19,6 +19,7 @@ from pathlib import Path
 from typing import Any, Callable, Dict, List, Optional
 
 from .qb_client import QBClient, QBError, QBAuthError, DEFAULT_DONE_TAG
+from .scanner import DEFAULT_EXTENSIONS
 
 
 class QBWatcher:
@@ -33,7 +34,7 @@ class QBWatcher:
         done_tag: str = DEFAULT_DONE_TAG,
         stable_checks: int = 2,
         stable_interval: float = 2.0,
-        min_size: int = 1024 * 1024,   # 小于 1MB 的忽略
+        min_size: int = 1,   # 允许字幕/小型媒体文件；默认排除空文件
     ):
         """
         :param qb: QBClient 实例
@@ -44,33 +45,37 @@ class QBWatcher:
         """
         self.qb = qb
         self.push = push_callback
-        self.media_exts = [e.lower().lstrip(".") for e in (media_exts or [])]
+        self.media_exts = [e.lower().lstrip(".") for e in (media_exts or DEFAULT_EXTENSIONS) if isinstance(e, str) and e.strip()]
         self.log = logger or (lambda *a, **k: None)
         self.done_tag = done_tag
         self.stable_checks = stable_checks
         self.stable_interval = stable_interval
         self.min_size = min_size
+        # 跨轮询保存文件稳定状态，避免每个文件阻塞 sleep
+        self._stability: Dict[str, tuple[int, float]] = {}
 
     # ------------------------------------------------------------------ #
     # 文件落地稳定检测
     # ------------------------------------------------------------------ #
     def _stable_and_ready(self, path: Path) -> bool:
-        """连续检查文件大小是否稳定（防止下载/解压/改名未完成）。"""
-        if not path.exists() or not path.is_file():
+        """非阻塞稳定检测：跨轮询观察大小不变达到 stable_interval。"""
+        try:
+            if not path.is_file():
+                self._stability.pop(str(path), None)
+                return False
+            st = path.stat()
+        except OSError:
+            self._stability.pop(str(path), None)
             return False
-        last = -1
-        for _ in range(self.stable_checks):
-            try:
-                size = path.stat().st_size
-            except OSError:
-                return False
-            if size < self.min_size:
-                return False
-            if size != last and last != -1:
-                return False       # 还在变化
-            last = size
-            time.sleep(self.stable_interval)
-        return True
+        if st.st_size < self.min_size:
+            return False
+        key = str(path)
+        now = time.monotonic()
+        previous = self._stability.get(key)
+        if previous is None or previous[0] != st.st_size:
+            self._stability[key] = (st.st_size, now)
+            return False
+        return now - previous[1] >= self.stable_interval
 
     def _is_media(self, path: Path) -> bool:
         if not self.media_exts:
@@ -148,10 +153,10 @@ class QBWatcher:
                 stats["skipped"] += 1
                 continue
 
-            # 需要所有媒体文件都落地稳定
+            # 整个种子的媒体文件都必须存在且稳定；部分就绪时不可给整种子打完成标签
             ready = [p for p in media if self._stable_and_ready(p)]
-            if not ready:
-                self.log(f"跳过（文件未就绪）: {t_name}")
+            if len(ready) != len(media):
+                self.log(f"跳过（媒体文件未全部落地或稳定）: {t_name}，就绪 {len(ready)}/{len(media)}")
                 stats["skipped"] += 1
                 continue
 
@@ -177,8 +182,9 @@ class QBWatcher:
                     stats["pushed"] += 1
                     self.log(f"秒传成功并标记已整理: {t_name}  [{'; '.join(detail)}]")
                 except QBError as e:
-                    self.log(f"秒传成功但打标签失败: {t_name} -> {e}")
-                    stats["pushed"] += 1
+                    # 标签未落地时 MP 仍会整理该种子，不能把它计为联动完成。
+                    stats["failed"] += 1
+                    self.log(f"秒传已成功但「已整理」标签写入失败；MP 仍会整理，下一轮会补试: {t_name} -> {e}")
             else:
                 stats["failed"] += 1
                 self.log(f"秒传未全部成功，交给 MP 整理: {t_name}  [{'; '.join(detail)}]")
