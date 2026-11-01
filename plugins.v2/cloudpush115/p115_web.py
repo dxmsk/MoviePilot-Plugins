@@ -222,43 +222,105 @@ class P115WebClient:
     # ---------------- 登录校验 ---------------- #
     def check_login(self) -> Dict[str, Any]:
         """校验登录态，成功返回用户信息字典，失败抛 P115AuthError。"""
-        data = self._get_json(f"{WEBAPI}/?ct=guide&ac=status")
-        if not data.get("state"):
-            raise P115AuthError("Cookie 已失效或无效（登录状态检查未通过）")
         info: Dict[str, Any] = {"state": True}
+        # 新版：webapi /user/info（老 /?ct=guide&ac=status 已 980006 失效）
+        ok = False
+        for url in (f"{WEBAPI}/user/info", f"{WEBAPI}/?ct=guide&ac=status"):
+            try:
+                data = self._get_json(url)
+            except P115WebError:
+                continue
+            if data.get("state"):
+                ok = True
+                d = data.get("data") or {}
+                if isinstance(d, list) and d:
+                    d = d[0]
+                if isinstance(d, dict):
+                    info.update(d)
+                break
+        if not ok:
+            raise P115AuthError("Cookie 已失效或无效（登录状态检查未通过）")
+        # 补充 user_id（可选，失败不影响登录判定）
         try:
-            u = self._get_json(f"{PROAPI}/2.0/user/info", {"app": "android"})
-            if u.get("state"):
-                d = u.get("data") or {}
-                info.update(d)
-                info["user_name"] = d.get("user_name") or d.get("name") or d.get("user_id")
-        except P115WebError:
+            info.setdefault("user_id", self.user_id())
+        except P115AuthError:
+            pass
+        try:
+            info["user_name"] = (info.get("user_name") or info.get("name")
+                                 or info.get("user_id"))
+        except Exception:
             pass
         return info
+
+    def _uid_from_cookie(self) -> str:
+        """从 Cookie 的 UID 字段解析 user_id（形如 UID=123456_A1_xxx → 123456）。"""
+        try:
+            val = ""
+            for k, v in (self.cookies or {}).items():
+                if k.lower() == "uid":
+                    val = str(v)
+                    break
+            if val:
+                return val.split("_")[0].strip()
+        except Exception:
+            pass
+        return ""
+
+    def upload_info(self) -> Dict[str, str]:
+        """
+        一次性获取 user_id 与 userkey。
+        优先 webapi /files/uploadinfo（115 当前有效端点，同时返回两者），
+        回退到 proapi /app/uploadinfo 与 /android/2.0/user/upload_key。
+        """
+        if self._user_id and self._user_key:
+            return {"user_id": self._user_id, "userkey": self._user_key}
+
+        # 1) webapi /files/uploadinfo（最稳，一次拿全）
+        for url in (f"{WEBAPI}/files/uploadinfo", f"{PROAPI}/app/uploadinfo"):
+            try:
+                data = self._get_json(url)
+            except P115WebError:
+                continue
+            if not data.get("state"):
+                continue
+            d = data.get("data") if isinstance(data.get("data"), dict) else data
+            uid = str(d.get("user_id") or d.get("uid") or "").strip()
+            key = str(d.get("userkey") or d.get("user_key") or "").strip()
+            if not uid:
+                uid = self._uid_from_cookie()
+            if uid:
+                self._user_id = uid
+            if key:
+                self._user_key = key
+            if self._user_id and self._user_key:
+                return {"user_id": self._user_id, "userkey": self._user_key}
+
+        # 2) 兜底：Cookie 里的 UID + 单独取 upload_key
+        if not self._user_id:
+            uid = self._uid_from_cookie()
+            if uid:
+                self._user_id = uid
+        return {"user_id": self._user_id or "", "userkey": self._user_key or ""}
 
     def user_id(self) -> str:
         if self._user_id:
             return self._user_id
-        data = self._get_json(f"{PROAPI}/2.0/user/info", {"app": "android"})
-        if not data.get("state"):
-            raise P115AuthError("获取用户信息失败，Cookie 可能已失效")
-        info = data.get("data") or {}
-        uid = info.get("user_id") or info.get("uid") or info.get("userid")
-        if not uid:
-            raise P115AuthError("响应中缺少 user_id")
-        self._user_id = str(uid)
+        # 先试 Cookie（零请求），再走接口
+        uid = self._uid_from_cookie()
+        if uid:
+            self._user_id = uid
+            return self._user_id
+        info = self.upload_info()
+        if not info.get("user_id"):
+            raise P115AuthError("获取 user_id 失败，Cookie 可能已失效")
         return self._user_id
 
     def user_key(self) -> str:
         if self._user_key:
             return self._user_key
-        data = self._get_json(f"{PROAPI}/2.0/user/upload_key", {"app": "android"})
-        if not data.get("state"):
+        info = self.upload_info()
+        if not info.get("userkey"):
             raise P115AuthError("获取 upload_key 失败，Cookie 可能已失效")
-        key = (data.get("data") or {}).get("userkey") or ""
-        if not key:
-            raise P115AuthError("响应中缺少 userkey")
-        self._user_key = key
         return self._user_key
 
     # ---------------- 目录操作 ---------------- #
@@ -443,8 +505,12 @@ class P115WebClient:
         payload.setdefault("sign_val", "")
         payload.setdefault("topupload", "true")
         payload.setdefault("appversion", APP_VERSION)
-        payload["userid"] = str(payload.get("userid") or self.user_id())
-        payload["userkey"] = payload.get("userkey") or self.user_key()
+        # 一次性取 user_id + userkey（避免重复请求）
+        info = self.upload_info()
+        payload["userid"] = str(payload.get("userid") or info.get("user_id")
+                                 or self.user_id())
+        payload["userkey"] = payload.get("userkey") or info.get("userkey") \
+            or self.user_key()
 
         built = make_upload_payload(payload)
         url = f"{UPLB}/4.0/initupload.php?" + urlencode(built["params"])
