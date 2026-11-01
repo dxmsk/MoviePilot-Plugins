@@ -41,9 +41,9 @@ class CloudPush115(_PluginBase):
         "不下载、不上传文件本体。支持秒传失败自定义间隔重试，全程只读、不移动原始文件。"
     )
     plugin_icon = "clouddisk.png"
-    plugin_version = "1.3.0"
-    plugin_author = "dxmsk"
-    author_url = "https://github.com/dxmsk"
+    plugin_version = "1.3.1"
+    plugin_author = "Minis"
+    author_url = "https://github.com/jxxghp/MoviePilot"
     plugin_config_prefix = "cloudpush115_"
     plugin_order = 20
     auth_level = 1
@@ -268,14 +268,17 @@ class CloudPush115(_PluginBase):
         client = self._make_client()
         try:
             remote_dir_id = client.get_dir_id_by_path(self._remote_dir or "/")
-        except (P115AuthError, P115WebError) as e:
+        except P115AuthError as e:
             return {"ok": False, "message": f"115 鉴权失败: {e}"}
-        except P115Error as e:
+        except (P115WebError, P115Error) as e:
+            # 目录解析失败（如并发创建冲突）不致命中止，退回根目录继续秒传
             remote_dir_id = 0
-            logger.warning(f"{self.LOG}解析目标目录失败，使用根目录: {e}")
+            logger.warning(f"{self.LOG}解析目标目录失败，改用根目录秒传: {e}")
         try:
             result = client.push_file(local_path, remote_dir_id)
-        except (P115AuthError, P115WebError, P115Error) as e:
+        except P115AuthError as e:
+            return {"ok": False, "message": f"115 鉴权失败: {e}"}
+        except (P115WebError, P115Error) as e:
             return {"ok": False, "message": str(e)}
         if result.get("ok"):
             p = str(local_path)
