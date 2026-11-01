@@ -41,7 +41,7 @@ class CloudPush115(_PluginBase):
         "不下载、不上传文件本体。支持秒传失败自定义间隔重试，全程只读、不移动原始文件。"
     )
     plugin_icon = "clouddisk.png"
-    plugin_version = "1.3.4"
+    plugin_version = "1.3.5"
     plugin_author = "Minis"
     author_url = "https://github.com/jxxghp/MoviePilot"
     plugin_config_prefix = "cloudpush115_"
@@ -111,6 +111,9 @@ class CloudPush115(_PluginBase):
         self._access_token = (config.get("access_token") or "").strip()
         self._cookie = (config.get("cookie") or "").strip()
         self._user_agent = (config.get("user_agent") or "").strip()
+        self._client_cache = None
+        self._client_cache_key = None
+        self._remote_dir_cache = {}
         self._watch_paths = config.get("watch_paths") or ""
         self._remote_dir = config.get("remote_dir") or ""
         self._extensions = config.get("extensions") or ""
@@ -194,10 +197,25 @@ class CloudPush115(_PluginBase):
         return bool(self._access_token)
 
     def _make_client(self):
-        """按登录模式构造 115 客户端。"""
+        """按登录模式获取当前配置对应的复用客户端。"""
+        key = (self._login_mode, self._cookie, self._user_agent, self._access_token)
+        if self._client_cache is not None and self._client_cache_key == key:
+            return self._client_cache
         if self._login_mode == "cookie":
-            return P115WebClient(cookie=self._cookie, user_agent=self._user_agent)
-        return P115Client(access_token=self._access_token)
+            client = P115WebClient(cookie=self._cookie, user_agent=self._user_agent)
+        else:
+            client = P115Client(access_token=self._access_token)
+        self._client_cache = client
+        self._client_cache_key = key
+        self._remote_dir_cache.clear()
+        return client
+
+    def _remote_dir_id(self, client):
+        """缓存当前目标目录 ID；配置或客户端变化时自然失效。"""
+        key = (id(client), self._remote_dir)
+        if key not in self._remote_dir_cache:
+            self._remote_dir_cache[key] = client.get_dir_id_by_path(self._remote_dir)
+        return self._remote_dir_cache[key]
 
     # ------------------------------------------------------------------ #
     # qb 下载完成联动
@@ -267,7 +285,7 @@ class CloudPush115(_PluginBase):
         """单个文件秒传回调（供 QBWatcher 调用）。"""
         client = self._make_client()
         try:
-            remote_dir_id = client.get_dir_id_by_path(self._remote_dir or "/")
+            remote_dir_id = self._remote_dir_id(client)
         except P115AuthError as e:
             return {"ok": False, "message": f"115 鉴权失败: {e}"}
         except (P115WebError, P115Error) as e:
@@ -389,7 +407,7 @@ class CloudPush115(_PluginBase):
 
         # 解析目标目录 id（按需创建）
         try:
-            remote_dir_id = client.get_dir_id_by_path(self._remote_dir)
+            remote_dir_id = self._remote_dir_id(client)
         except (P115AuthError, P115WebError) as e:
             logger.error(f"{self.LOG}115 鉴权失败: {e}")
             self._notify_result("115 秒传鉴权失败", str(e), error=True)
@@ -471,7 +489,7 @@ class CloudPush115(_PluginBase):
                 return
             try:
                 client = self._make_client()
-                remote_dir_id = client.get_dir_id_by_path(self._remote_dir)
+                remote_dir_id = self._remote_dir_id(client)
             except (P115AuthError, P115WebError, P115Error) as e:
                 logger.error(f"{self.LOG}重试前初始化失败: {e}")
                 return
