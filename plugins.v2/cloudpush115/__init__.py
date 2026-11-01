@@ -12,6 +12,7 @@
 from __future__ import annotations
 
 import threading
+import time
 from datetime import datetime
 from typing import Any, Dict, List, Optional, Tuple
 
@@ -40,7 +41,7 @@ class CloudPush115(_PluginBase):
         "不下载、不上传文件本体。支持秒传失败自定义间隔重试，全程只读、不移动原始文件。"
     )
     plugin_icon = "clouddisk.png"
-    plugin_version = "1.5.3"
+    plugin_version = "1.5.4"
     plugin_author = "Minis"
     author_url = "https://github.com/jxxghp/MoviePilot"
     plugin_config_prefix = "cloudpush115_"
@@ -101,6 +102,7 @@ class CloudPush115(_PluginBase):
     _remote_cid_paths: Dict[str, str] = {"0": "/"}
     _remote_parent_map: Dict[str, Optional[str]] = {"0": None}
     _remote_dir_options_cache: List[Dict[str, Any]] = []
+    _last_qb_log: Tuple[str, float] = ("", 0.0)
 
     # ------------------------------------------------------------------ #
     # 生命周期
@@ -261,7 +263,7 @@ class CloudPush115(_PluginBase):
             qb=qb,
             push_callback=self._qb_push_one,
             media_exts=ext_list,
-            logger=lambda m: logger.info(f"{self.LOG}[qb] {m}"),
+            logger=lambda m: self._qb_log(m),
             done_tag=self._qb_done_tag,
             stable_checks=2,
             stable_interval=max(self._qb_settle // 2, 1),
@@ -297,6 +299,24 @@ class CloudPush115(_PluginBase):
         except Exception as e:
             logger.debug(f"{self.LOG}自动读取下载器配置失败（忽略）: {e}")
         return None
+
+    def _qb_log(self, message: str) -> None:
+        """记录 qB 联动状态，首页整理条目可见。"""
+        logger.info(f"{self.LOG}[qb] {message}")
+        now = time.monotonic()
+        if message == self._last_qb_log[0] and now - self._last_qb_log[1] < 30:
+            return
+        self._last_qb_log = (message, now)
+        self._history.append({
+            "name": message.split(":", 1)[-1].strip()[:160],
+            "path": "qBittorrent",
+            "size": "",
+            "result": "qB状态",
+            "message": message,
+            "time": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+        })
+        self._history = self._history[-500:]
+        self._persist()
 
     def _qb_push_one(self, local_path, remote_dir: str = "") -> Dict[str, Any]:
         """单个文件秒传回调（供 QBWatcher 调用）。"""
