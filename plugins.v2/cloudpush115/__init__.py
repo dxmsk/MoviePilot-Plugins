@@ -40,7 +40,7 @@ class CloudPush115(_PluginBase):
         "不下载、不上传文件本体。支持秒传失败自定义间隔重试，全程只读、不移动原始文件。"
     )
     plugin_icon = "clouddisk.png"
-    plugin_version = "1.4.3"
+    plugin_version = "1.4.4"
     plugin_author = "Minis"
     author_url = "https://github.com/jxxghp/MoviePilot"
     plugin_config_prefix = "cloudpush115_"
@@ -110,9 +110,14 @@ class CloudPush115(_PluginBase):
         self._client_cache = None
         self._client_cache_key = None
         self._remote_dir_cache = {}
+        self._local_dir_cache = {}
+        self._remote_dir_options_cache = []
         raw_paths = config.get("watch_paths") or ""
         self._watch_paths = ",".join(str(p) for p in raw_paths) if isinstance(raw_paths, (list, tuple, set)) else str(raw_paths)
         self._remote_dir = config.get("remote_dir") or ""
+        self._remote_dir_options_cache = [{"title": "🏠 根目录 /", "value": "/"}]
+        threading.Thread(target=self._warm_directory_options, daemon=True,
+                         name="CloudPush115DirectoryCache").start()
         self._extensions = config.get("extensions") or ""
         self._retry_interval = max(int(config.get("retry_interval") or 600), 30)
         self._max_attempts = max(int(config.get("max_attempts") or 0), 0)
@@ -127,7 +132,6 @@ class CloudPush115(_PluginBase):
         self._qb_done_tag = (config.get("qb_done_tag") or "已整理").strip()
         self._qb_interval = max(int(config.get("qb_interval") or 10), 3)
         self._qb_settle = max(int(config.get("qb_settle") or 5), 0)
-
         # 载入持久化状态
         try:
             self._done = set(self.get_data("done_files") or [])
@@ -900,53 +904,134 @@ class CloudPush115(_PluginBase):
                 f"待重试: {len(self._queue) if self._queue else 0}\n"
                 f"最近扫描: {self._last_run or '尚未运行'}")
 
-    def _local_dir_items(self, max_items: int = 500, max_depth: int = 4) -> List[Dict[str, str]]:
-        """扫描容器可见的本地目录，生成可搜索下拉项。"""
-        import os
-        roots = [p for p in ("/media", "/mnt", "/downloads", "/data", "/volume1", "/opt") if os.path.isdir(p)]
-        items: Dict[str, str] = {}
+    def _local_dir_items(self, max_items: int = 1200, max_depth: int = 6) -> List[Dict[str, str]]:
+        """缓存扫描 MP 本地配置根、Docker 所有挂载点和已选路径。"""
+        import os, time
+        cache = getattr(self, "_local_dir_cache", {})
+        now = time.monotonic()
+        if cache.get("expires", 0) > now:
+            return cache.get("items", [])
+
+        roots = []
+        # Include every MoviePilot setting that points to an existing directory.
+        for attr in dir(settings):
+            if "PATH" not in attr.upper() and "DIR" not in attr.upper():
+                continue
+            try:
+                value = getattr(settings, attr, None)
+                if value:
+                    path = os.fspath(value) if hasattr(value, "__fspath__") else str(value)
+                    if path.startswith("/") and os.path.isdir(path):
+                        roots.append(path)
+            except Exception:
+                continue
+        roots.extend(("/media", "/mnt", "/downloads", "/data", "/volume1", "/opt"))
+
+        # Docker/Podman bind mounts and named volumes visible inside this MP container.
+        try:
+            with open("/proc/self/mountinfo", "r", encoding="utf-8") as stream:
+                for line in stream:
+                    fields = line.split()
+                    if len(fields) > 4:
+                        mount = fields[4].replace("\\040", " ").replace("\\011", "\t").replace("\\134", "\\")
+                        separator = fields.index("-") if "-" in fields else len(fields)
+                        fs_type = fields[separator + 1] if separator + 1 < len(fields) else ""
+                        if (mount.startswith("/") and mount != "/"
+                                and not mount.startswith(("/proc", "/sys", "/dev", "/run"))
+                                and fs_type not in {"proc", "sysfs", "devtmpfs", "cgroup", "cgroup2", "securityfs", "debugfs"}):
+                            roots.append(mount)
+        except OSError:
+            try:
+                with open("/proc/mounts", "r", encoding="utf-8") as stream:
+                    for line in stream:
+                        fields = line.split()
+                        if len(fields) > 2:
+                            mount = fields[1].replace("\\040", " ").replace("\\011", "\t").replace("\\134", "\\")
+                            fs_type = fields[2]
+                            if (mount.startswith("/") and mount != "/"
+                                    and not mount.startswith(("/proc", "/sys", "/dev", "/run"))
+                                    and fs_type not in {"proc", "sysfs", "devtmpfs", "cgroup", "cgroup2", "tmpfs"}):
+                                roots.append(mount)
+            except OSError:
+                pass
+
         for saved in (self._watch_paths or "").replace("，", ",").replace("\n", ",").split(","):
             saved = saved.strip()
-            if saved and os.path.isdir(saved): items[saved] = saved
-        queue = [(p, 0) for p in roots]
-        while queue and len(items) < max_items:
+            if saved: roots.append(saved)
+
+        unique_roots = []
+        seen_roots = set()
+        for root in roots:
+            root = os.path.abspath(os.path.expanduser(root))
+            if root not in seen_roots and os.path.isdir(root):
+                seen_roots.add(root); unique_roots.append(root)
+
+        # 始终保留每个有效根路径（尤其是 mountinfo 中的 mount point）。
+        items: Dict[str, str] = {root: root for root in unique_roots}
+        queue = [(root, 0) for root in unique_roots]
+        deadline = now + 2.0
+        while queue and len(items) < max_items and time.monotonic() < deadline:
             folder, depth = queue.pop(0)
             items[folder] = folder
             if depth >= max_depth: continue
             try:
-                children = sorted(os.scandir(folder), key=lambda e: e.name.lower())
-            except (OSError, PermissionError): continue
+                with os.scandir(folder) as iterator:
+                    children = sorted(iterator, key=lambda e: e.name.casefold())
+            except OSError:
+                continue
             for entry in children:
+                if entry.name.startswith("."): continue
                 try:
-                    if entry.is_dir(follow_symlinks=False) and not entry.name.startswith("."):
+                    if entry.is_dir(follow_symlinks=False):
                         items[entry.path] = entry.path
-                        if depth + 1 < max_depth: queue.append((entry.path, depth + 1))
-                except OSError: continue
-        return [{"title": p, "value": p} for p in sorted(items)]
+                        if depth + 1 < max_depth and len(items) < max_items:
+                            queue.append((entry.path, depth + 1))
+                except OSError:
+                    continue
 
-    def _remote_dir_items(self, max_items: int = 50, max_depth: int = 2) -> List[Dict[str, str]]:
-        """Cookie 登录后枚举有限深度网盘目录，供原生 VSelect 搜索选择。"""
+        result = [{"title": p, "value": p} for p in sorted(items)]
+        self._local_dir_cache = {"expires": now + 60, "items": result}
+        return result
+
+    def _warm_directory_options(self) -> None:
+        """后台预热网盘目录选项；插件设置页本身不等待网络。"""
+        if not self._cookie:
+            return
         items = ["/"]
-        if not self._cookie: return items
         queue = [("0", "/", 0)]
         seen = {"0"}
         try:
             client = P115WebClient(cookie=self._cookie, user_agent=self._user_agent)
-            while queue and len(items) < max_items:
+            while queue and len(items) < 50:
                 cid, prefix, depth = queue.pop(0)
-                if depth >= max_depth: continue
+                if depth >= 2:
+                    continue
                 for entry in client.browse(cid).get("entries", []):
-                    child = (prefix.rstrip("/") + "/" + entry["name"]) or "/"
-                    items.append(child)
-                    ecid = str(entry.get("cid", ""))
-                    if ecid and ecid not in seen:
-                        seen.add(ecid); queue.append((ecid, child, depth + 1))
-                    if len(items) >= max_items: break
+                    path = (prefix.rstrip("/") + "/" + entry["name"]) or "/"
+                    items.append(path)
+                    child_id = str(entry.get("cid", ""))
+                    if child_id and child_id not in seen:
+                        seen.add(child_id)
+                        queue.append((child_id, path, depth + 1))
+                    if len(items) >= 50:
+                        break
         except Exception as e:
-            logger.warning(f"{self.LOG}加载网盘目录列表失败: {e}")
-        if self._remote_dir and self._remote_dir not in items: items.insert(0, self._remote_dir)
-        paths = sorted(set(items))
-        return [{"title": ("🏠 根目录" if path == "/" else path), "value": path} for path in paths]
+            logger.warning(f"{self.LOG}后台加载网盘目录选项失败: {e}")
+        if self._remote_dir:
+            items.append(self._remote_dir)
+        self._remote_dir_options_cache = [
+            {"title": ("🏠 根目录 /" if p == "/" else p), "value": p}
+            for p in sorted(set(items))
+        ]
+
+    def _remote_dir_items(self) -> List[Dict[str, str]]:
+        """读取后台缓存；表单构建绝不访问网络。"""
+        items = list(getattr(self, "_remote_dir_options_cache", []) or [])
+        if not items:
+            items = [{"title": "🏠 根目录 /", "value": "/"}]
+        if self._remote_dir and all(x.get("value") != self._remote_dir for x in items):
+            items.append({"title": self._remote_dir, "value": self._remote_dir})
+        return items
 
     def get_form(self) -> Tuple[List[dict], Dict[str, Any]]:
         return [
