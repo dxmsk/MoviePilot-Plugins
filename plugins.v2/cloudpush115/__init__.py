@@ -31,6 +31,8 @@ from . import p115_qrlogin as qrlogin
 from .dirbrowser_html import DIR_BROWSER_HTML
 from .qrlogin_html import QR_LOGIN_HTML as _QR_LOGIN_HTML
 from .dashboard_html import DASHBOARD_HTML
+from .homepage_html import HOMEPAGE_HTML
+from .localbrowser_html import LOCAL_BROWSER_HTML
 from .scanner import MediaScanner, RetryQueue
 
 
@@ -42,7 +44,7 @@ class CloudPush115(_PluginBase):
         "不下载、不上传文件本体。支持秒传失败自定义间隔重试，全程只读、不移动原始文件。"
     )
     plugin_icon = "clouddisk.png"
-    plugin_version = "1.4.0"
+    plugin_version = "1.4.1"
     plugin_author = "Minis"
     author_url = "https://github.com/jxxghp/MoviePilot"
     plugin_config_prefix = "cloudpush115_"
@@ -630,6 +632,20 @@ class CloudPush115(_PluginBase):
                 "auth": "bear",
                 "summary": "可视化目录选择器页面",
             },
+            {
+                "path": "/localbrowse",
+                "endpoint": self.api_localbrowse,
+                "methods": ["GET", "POST"],
+                "auth": "bear",
+                "summary": "浏览服务器本地目录（可视化选择监控路径）",
+            },
+            {
+                "path": "/addpath",
+                "endpoint": self.api_addpath,
+                "methods": ["GET", "POST"],
+                "auth": "bear",
+                "summary": "把一个本地目录加入监控列表",
+            },
         ]
 
     # ---------------------------------------------------------------- #
@@ -715,6 +731,97 @@ class CloudPush115(_PluginBase):
             return {"success": False, "message": f"登录失效：{e}"}
         except Exception as e:
             return {"success": False, "message": f"读取目录失败：{e}"}
+
+    def api_localbrowse(self, path: str = "") -> Dict[str, Any]:
+        """列出服务器本地某目录下的子目录，供可视化选择监控路径。"""
+        import os
+        try:
+            # 空路径=列出常见根 + 已配置的监控目录
+            if not path:
+                roots = []
+                for c in ("/media", "/mnt", "/downloads", "/data", "/volume1", "/", "/opt"):
+                    if os.path.isdir(c):
+                        roots.append(c)
+                cur = [p.strip() for p in
+                       (self._watch_paths or "").replace("，", ",").replace("\n", ",").split(",")
+                       if p.strip()]
+                entries = []
+                seen = set()
+                for r in roots + cur:
+                    if r in seen or not os.path.isdir(r):
+                        continue
+                    seen.add(r)
+                    entries.append({"name": r, "path": r, "watched": r in cur})
+                return {"success": True, "path": "", "parent": "",
+                        "entries": entries, "is_root": True}
+
+            path = os.path.abspath(path)
+            if not os.path.isdir(path):
+                return {"success": False, "message": f"目录不存在或不可读: {path}"}
+            cur = [p.strip() for p in
+                   (self._watch_paths or "").replace("，", ",").replace("\n", ",").split(",")
+                   if p.strip()]
+            entries = []
+            try:
+                for name in sorted(os.listdir(path), key=lambda s: s.lower()):
+                    full = os.path.join(path, name)
+                    if name.startswith(".") or not os.path.isdir(full):
+                        continue
+                    entries.append({"name": name, "path": full, "watched": full in cur})
+            except PermissionError:
+                return {"success": False, "message": f"无权限读取: {path}"}
+            parent = os.path.dirname(path.rstrip("/")) or "/"
+            return {"success": True, "path": path, "parent": parent,
+                    "entries": entries, "is_root": False}
+        except Exception as e:
+            return {"success": False, "message": f"读取目录失败: {e}"}
+
+    def api_addpath(self, path: str = "") -> Dict[str, Any]:
+        """把一个本地目录追加到监控列表（watch_paths）并持久化。"""
+        import os
+        path = (path or "").strip()
+        if not path:
+            return {"success": False, "message": "路径为空"}
+        if not os.path.isdir(path):
+            return {"success": False, "message": f"目录不存在: {path}"}
+        cur = [p.strip() for p in
+               (self._watch_paths or "").replace("，", ",").replace("\n", ",").split(",")
+               if p.strip()]
+        if path in cur:
+            return {"success": True, "message": "该目录已在监控列表", "paths": cur}
+        cur.append(path)
+        self._watch_paths = ",".join(cur)
+        try:
+            self.update_config(self._current_config())
+        except Exception as e:
+            return {"success": False, "message": f"已加入内存但写配置失败: {e}", "paths": cur}
+        return {"success": True, "message": f"已加入监控: {path}", "paths": cur}
+
+    def _current_config(self) -> Dict[str, Any]:
+        """用当前内存字段重建一份完整配置（跨 MP 版本安全写回）。"""
+        return {
+            "enabled": self._enabled,
+            "onlyonce": self._onlyonce,
+            "notify": self._notify,
+            "login_mode": self._login_mode,
+            "access_token": self._access_token,
+            "cookie": self._cookie,
+            "user_agent": self._user_agent,
+            "watch_paths": self._watch_paths,
+            "remote_dir": self._remote_dir,
+            "extensions": self._extensions,
+            "retry_interval": self._retry_interval,
+            "max_attempts": self._max_attempts,
+            "scan_interval": self._scan_interval,
+            "retry_notfound": self._retry_notfound,
+            "qb_enabled": self._qb_enabled,
+            "qb_host": self._qb_host,
+            "qb_username": self._qb_username,
+            "qb_password": self._qb_password,
+            "qb_done_tag": self._qb_done_tag,
+            "qb_interval": self._qb_interval,
+            "qb_settle": self._qb_settle,
+        }
 
     def api_scan(self) -> Dict[str, Any]:
         threading.Thread(target=self._run_once_sync, daemon=True).start()
@@ -1194,178 +1301,63 @@ class CloudPush115(_PluginBase):
         }
 
     def get_page(self) -> List[dict]:
-        state = "已启用" if self.get_state() else "未启用"
-        retry_count = len(self._queue) if self._queue else 0
-        done_count = len(self._done)
-        qb_on = bool(self._qb_enabled and self._qb_host)
-        qb_txt = (f"{self._qb_host}") if qb_on else "未启用"
+        pid = self._plugin_id()
+        home = HOMEPAGE_HTML.replace("__PREFIX__", pid)
+        qr = _QR_LOGIN_HTML.replace("__PREFIX__", pid)
+        local = LOCAL_BROWSER_HTML.replace("__PREFIX__", pid)
+        remote = DIR_BROWSER_HTML.replace("__PREFIX__", pid)
 
-        dash = (DASHBOARD_HTML
-                .replace("__STATE_ON__", "1" if self.get_state() else "0")
-                .replace("__STATE__", state)
-                .replace("__DONE__", str(done_count))
-                .replace("__RETRY__", str(retry_count))
-                .replace("__LASTRUN__", str(self._last_run or "尚未运行"))
-                .replace("__QB_ON__", "1" if qb_on else "0")
-                .replace("__QB__", qb_txt))
+        def _vcard(icon, color, title, inner_html, border):
+            return {
+                "component": "VCard",
+                "props": {"variant": "flat", "class": "rounded-xl h-100",
+                          "style": f"border:1px solid {border};"
+                                   "box-shadow:0 8px 24px -16px rgba(0,0,0,.4);"},
+                "content": [
+                    {
+                        "component": "VCardTitle",
+                        "props": {"class": "d-flex align-center text-subtitle-1 font-weight-bold"},
+                        "content": [
+                            {"component": "VIcon",
+                             "props": {"icon": icon, "color": color, "class": "mr-2"}},
+                            {"component": "span", "text": title},
+                        ],
+                    },
+                    {
+                        "component": "VCardText",
+                        "content": [{"component": "VHtml", "props": {"html": inner_html}}],
+                    },
+                ],
+            }
 
-        page: List[dict] = [{
-            "component": "VHtml",
-            "props": {"html": dash},
-        }]
+        page: List[dict] = []
 
-        # ---- 扫码登录 + 目录可视化选择 ----
+        # —— 首页：实时统计 + 操作按钮 + 整理条目可视化 ——
+        page.append({"component": "VHtml", "props": {"html": home}})
+
+        # —— 三栏可视化：扫码登录 / 本地目录 / 115 目录 ——
         page.append({
             "component": "VRow",
             "props": {"class": "mt-1"},
             "content": [
-                {
-                    "component": "VCol",
-                    "props": {"cols": 12, "md": 5},
-                    "content": [{
-                        "component": "VCard",
-                        "props": {"variant": "flat", "class": "rounded-xl",
-                                  "style": "border:1px solid rgba(94,92,230,.18);"
-                                           "box-shadow:0 8px 24px -14px rgba(94,92,230,.5);"},
-                        "content": [
-                            {
-                                "component": "VCardTitle",
-                                "props": {"class": "d-flex align-center text-subtitle-1 font-weight-bold"},
-                                "content": [
-                                    {"component": "VIcon",
-                                     "props": {"icon": "mdi-qrcode-scan", "color": "primary", "class": "mr-2"}},
-                                    {"component": "span", "text": "扫码登录 115"},
-                                ],
-                            },
-                            {
-                                "component": "VCardText",
-                                "content": [{
-                                    "component": "VHtml",
-                                    "props": {"html": _QR_LOGIN_HTML.replace(
-                                        "__PREFIX__", self._plugin_id())},
-                                }],
-                            },
-                        ],
-                    }],
-                },
-                {
-                    "component": "VCol",
-                    "props": {"cols": 12, "md": 7},
-                    "content": [{
-                        "component": "VCard",
-                        "props": {"variant": "flat", "class": "rounded-xl",
-                                  "style": "border:1px solid rgba(10,132,255,.18);"
-                                           "box-shadow:0 8px 24px -14px rgba(10,132,255,.5);"},
-                        "content": [
-                            {
-                                "component": "VCardTitle",
-                                "props": {"class": "d-flex align-center text-subtitle-1 font-weight-bold"},
-                                "content": [
-                                    {"component": "VIcon",
-                                     "props": {"icon": "mdi-folder-open", "color": "info", "class": "mr-2"}},
-                                    {"component": "span", "text": "浏览并选择 115 目标目录"},
-                                ],
-                            },
-                            {
-                                "component": "VCardText",
-                                "content": [{
-                                    "component": "VHtml",
-                                    "props": {"html": DIR_BROWSER_HTML.replace(
-                                        "__PREFIX__", self._plugin_id())},
-                                }],
-                            },
-                        ],
-                    }],
-                },
+                {"component": "VCol", "props": {"cols": 12, "md": 4},
+                 "content": [_vcard("mdi-qrcode-scan", "primary", "扫码登录 115",
+                                    qr, "rgba(94,92,230,.18)")]},
+                {"component": "VCol", "props": {"cols": 12, "md": 4},
+                 "content": [_vcard("mdi-folder-search", "success", "选择本地监控目录",
+                                    local, "rgba(52,199,89,.2)")]},
+                {"component": "VCol", "props": {"cols": 12, "md": 4},
+                 "content": [_vcard("mdi-cloud-search", "info", "选择 115 目标目录",
+                                    remote, "rgba(10,132,255,.18)")]},
             ],
         })
 
-        if retry_count:
-            items = self._queue.to_list()[:20]
-            rows = []
-            for it in items:
-                rows.append({
-                    "name": it.get("name", ""),
-                    "attempts": it.get("attempts", 0),
-                    "error": str(it.get("last_error", ""))[:60],
-                })
-            page.append({
-                "component": "VCard",
-                "props": {"variant": "flat", "class": "rounded-xl mt-3",
-                          "style": "border:1px solid rgba(255,159,10,.25);"},
-                "content": [
-                    {
-                        "component": "VCardTitle",
-                        "props": {"class": "d-flex align-center text-subtitle-1 font-weight-bold"},
-                        "content": [
-                            {"component": "VIcon",
-                             "props": {"icon": "mdi-restart", "color": "warning", "class": "mr-2"}},
-                            {"component": "span", "text": f"待重试队列（{retry_count}）"},
-                        ],
-                    },
-                    {
-                        "component": "VDataTable",
-                        "props": {
-                            "headers": [
-                                {"title": "文件", "key": "name"},
-                                {"title": "已重试", "key": "attempts", "align": "center"},
-                                {"title": "最近错误", "key": "error"},
-                            ],
-                            "items": rows,
-                            "density": "comfortable",
-                            "hover": True,
-                            "items-per-page": 20,
-                        },
-                    },
-                ],
-            })
-
-        if self._history:
-            hist = []
-            for h in reversed(self._history[-50:]):
-                r = str(h.get("result", ""))
-                ok = ("成功" in r) or ("秒传" in r and "失败" not in r)
-                hist.append({**h, "_ok": ok})
-            page.append({
-                "component": "VCard",
-                "props": {"variant": "flat", "class": "rounded-xl mt-3",
-                          "style": "border:1px solid rgba(52,199,89,.22);"},
-                "content": [
-                    {
-                        "component": "VCardTitle",
-                        "props": {"class": "d-flex align-center text-subtitle-1 font-weight-bold"},
-                        "content": [
-                            {"component": "VIcon",
-                             "props": {"icon": "mdi-history", "color": "success", "class": "mr-2"}},
-                            {"component": "span", "text": "秒传记录（最近 50 条）"},
-                        ],
-                    },
-                    {
-                        "component": "VDataTable",
-                        "props": {
-                            "headers": [
-                                {"title": "文件", "key": "name"},
-                                {"title": "原始路径", "key": "path"},
-                                {"title": "大小", "key": "size", "align": "end"},
-                                {"title": "结果", "key": "result", "align": "center"},
-                                {"title": "时间", "key": "time"},
-                            ],
-                            "items": hist,
-                            "density": "comfortable",
-                            "hover": True,
-                            "items-per-page": 15,
-                        },
-                    },
-                ],
-            })
-
+        # —— 安全说明 ——
         page.append({
             "component": "VAlert",
             "props": {
-                "type": "info",
-                "variant": "tonal",
-                "class": "mt-3 rounded-xl",
-                "icon": "mdi-shield-check",
+                "type": "info", "variant": "tonal",
+                "class": "mt-3 rounded-xl", "icon": "mdi-shield-check",
                 "text": "本插件仅对文件做 SHA1「秒传」，不下载、不上传文件本体，"
                         "全程只读原始路径，绝不移动/修改/删除任何原始文件。"
                         "秒传失败的文件会进入重试队列，按你设置的间隔自动重试。",
