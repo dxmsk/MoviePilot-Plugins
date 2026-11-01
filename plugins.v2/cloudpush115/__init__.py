@@ -41,7 +41,7 @@ class CloudPush115(_PluginBase):
         "不下载、不上传文件本体。支持秒传失败自定义间隔重试，全程只读、不移动原始文件。"
     )
     plugin_icon = "clouddisk.png"
-    plugin_version = "1.3.1"
+    plugin_version = "1.3.2"
     plugin_author = "Minis"
     author_url = "https://github.com/jxxghp/MoviePilot"
     plugin_config_prefix = "cloudpush115_"
