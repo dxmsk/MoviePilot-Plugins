@@ -41,7 +41,7 @@ class CloudPush115(_PluginBase):
         "不下载、不上传文件本体。支持秒传失败自定义间隔重试，全程只读、不移动原始文件。"
     )
     plugin_icon = "clouddisk.png"
-    plugin_version = "1.3.3"
+    plugin_version = "1.3.4"
     plugin_author = "Minis"
     author_url = "https://github.com/jxxghp/MoviePilot"
     plugin_config_prefix = "cloudpush115_"
@@ -300,8 +300,10 @@ class CloudPush115(_PluginBase):
             return
         if not self._has_credentials():
             return
-        if not self._qb_lock.acquire(blocking=False):
+        # 与目录扫描/失败重试共用任务锁，避免同一文件并行秒传。
+        if not self._lock.acquire(blocking=False):
             return
+        self._running = True
         try:
             stats = self._qb_watcher.process_once(remote_dir=self._remote_dir)
             if stats.get("pushed") or stats.get("failed"):
@@ -316,7 +318,8 @@ class CloudPush115(_PluginBase):
         except Exception as e:
             logger.error(f"{self.LOG}qb 联动异常: {e}")
         finally:
-            self._qb_lock.release()
+            self._running = False
+            self._lock.release()
 
     def get_state(self) -> bool:
         if not self._has_credentials():
@@ -354,20 +357,19 @@ class CloudPush115(_PluginBase):
         self._tick(force=True)
 
     def _tick(self, force: bool = False) -> None:
-        """扫描目录并处理新文件（秒传）。"""
-        if self._running:
-            return
+        """扫描目录并处理新文件；原子抢锁，避免手动触发与定时任务重复跑。"""
         if not force and not self.get_state():
             return
-        with self._lock:
-            self._running = True
+        if not self._lock.acquire(blocking=False):
+            return
+        self._running = True
         try:
             self._do_scan()
         except Exception as e:
             logger.error(f"{self.LOG}扫描出错: {e}", exc_info=True)
         finally:
-            with self._lock:
-                self._running = False
+            self._running = False
+            self._lock.release()
 
     def _do_scan(self) -> None:
         if not self._has_credentials():
@@ -397,7 +399,10 @@ class CloudPush115(_PluginBase):
             remote_dir_id = 0
 
         files = self._scanner.iter_files(watch_paths)
-        todo = [f for f in files if f["path"] not in self._done]
+        # 已入重试队列的文件由 _retry_tick 按 next_retry 管理，避免全量扫描绕过用户设置的重试间隔。
+        queued_paths = set(self._queue.pending) if self._queue else set()
+        todo = [f for f in files if f["path"] not in self._done
+                and f["path"] not in queued_paths]
         if not todo:
             logger.info(f"{self.LOG}暂无新增文件待秒传（共 {len(files)} 个，已处理 {len(self._done)}）")
             self._last_run = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
@@ -454,47 +459,51 @@ class CloudPush115(_PluginBase):
             self._notify_result("115 秒传完成", msg)
 
     def _retry_tick(self) -> None:
-        """重试到期的失败文件。"""
-        if not self.get_state() or self._queue is None:
+        """重试到期文件；与全量扫描共用任务锁，避免同一路径并发秒传。"""
+        if not self.get_state() or self._queue is None or not self._has_credentials():
             return
-        due = self._queue.due()
-        if not due:
+        if not self._lock.acquire(blocking=False):
             return
-        if not self._has_credentials():
-            return
+        self._running = True
         try:
-            client = self._make_client()
-            remote_dir_id = client.get_dir_id_by_path(self._remote_dir)
-        except (P115AuthError, P115WebError, P115Error) as e:
-            logger.error(f"{self.LOG}重试前初始化失败: {e}")
-            return
-
-        logger.info(f"{self.LOG}开始重试 {len(due)} 个失败文件")
-        done_now = 0
-        for item in due:
-            path = item["path"]
+            due = self._queue.due()
+            if not due:
+                return
             try:
-                result = client.push_file(path, remote_dir_id)
-            except (P115Error, P115AuthError, P115WebError) as e:
-                result = {"ok": False, "message": str(e)}
-            if result.get("ok"):
-                done_now += 1
-                self._done.add(path)
-                self._queue.remove(path)
-                self._append_history(
-                    {"path": path, "name": item.get("name", ""), "size": item.get("size", 0)},
-                    result, True,
-                )
-                logger.info(f"{self.LOG}重试成功: {item.get('name')}")
-            else:
-                # 更新下一次重试时间
-                self._queue.add(
-                    path=path, name=item.get("name", ""), size=item.get("size", 0),
-                    remote_dir=self._remote_dir, error=result.get("message", "未知错误"),
-                )
-        self._persist()
-        if done_now and self._notify:
-            self._notify_result("115 秒传重试", f"本轮重试成功 {done_now} 个")
+                client = self._make_client()
+                remote_dir_id = client.get_dir_id_by_path(self._remote_dir)
+            except (P115AuthError, P115WebError, P115Error) as e:
+                logger.error(f"{self.LOG}重试前初始化失败: {e}")
+                return
+
+            logger.info(f"{self.LOG}开始重试 {len(due)} 个失败文件")
+            done_now = 0
+            for item in due:
+                path = item["path"]
+                try:
+                    result = client.push_file(path, remote_dir_id)
+                except (P115Error, P115AuthError, P115WebError) as e:
+                    result = {"ok": False, "message": str(e)}
+                if result.get("ok"):
+                    done_now += 1
+                    self._done.add(path)
+                    self._queue.remove(path)
+                    self._append_history(
+                        {"path": path, "name": item.get("name", ""), "size": item.get("size", 0)},
+                        result, True,
+                    )
+                    logger.info(f"{self.LOG}重试成功: {item.get('name')}")
+                else:
+                    self._queue.add(
+                        path=path, name=item.get("name", ""), size=item.get("size", 0),
+                        remote_dir=self._remote_dir, error=result.get("message", "未知错误"),
+                    )
+            self._persist()
+            if done_now and self._notify:
+                self._notify_result("115 秒传重试", f"本轮重试成功 {done_now} 个")
+        finally:
+            self._running = False
+            self._lock.release()
 
     def _append_history(self, item: Dict[str, Any], result: Dict[str, Any],
                         ok: bool, skipped: bool = False) -> None:
