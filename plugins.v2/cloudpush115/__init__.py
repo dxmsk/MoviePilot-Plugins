@@ -40,7 +40,7 @@ class CloudPush115(_PluginBase):
         "不下载、不上传文件本体。支持秒传失败自定义间隔重试，全程只读、不移动原始文件。"
     )
     plugin_icon = "clouddisk.png"
-    plugin_version = "1.4.4"
+    plugin_version = "1.4.5"
     plugin_author = "Minis"
     author_url = "https://github.com/jxxghp/MoviePilot"
     plugin_config_prefix = "cloudpush115_"
@@ -132,6 +132,14 @@ class CloudPush115(_PluginBase):
         self._qb_done_tag = (config.get("qb_done_tag") or "已整理").strip()
         self._qb_interval = max(int(config.get("qb_interval") or 10), 3)
         self._qb_settle = max(int(config.get("qb_settle") or 5), 0)
+
+        # Migrate legacy comma-separated watch_paths to the V2 VSelect-multiple list model.
+        if isinstance(raw_paths, str) and raw_paths.strip():
+            try:
+                self.update_config(self._current_config())
+            except Exception as e:
+                logger.warning(f"{self.LOG}监控路径配置格式迁移失败: {e}")
+
         # 载入持久化状态
         try:
             self._done = set(self.get_data("done_files") or [])
@@ -161,7 +169,8 @@ class CloudPush115(_PluginBase):
         # 仅运行一次
         if self._onlyonce:
             self._onlyonce = False
-            self.update_config({"onlyonce": False})
+            # V2 update_config replaces the whole config dict; always persist every field.
+            self.update_config(self._current_config())
             threading.Thread(target=self._run_once_sync, daemon=True,
                              name="CloudPush115Once").start()
 
@@ -830,7 +839,7 @@ class CloudPush115(_PluginBase):
             return {"success": False, "message": f"保存目标目录失败：{e}"}
 
     def _current_config(self) -> Dict[str, Any]:
-        """用当前内存字段重建一份完整配置（跨 MP 版本安全写回）。"""
+        """按表单字段类型重建完整配置；watch_paths 使用 VSelect multiple 的 list。"""
         return {
             "enabled": self._enabled,
             "onlyonce": self._onlyonce,
@@ -904,7 +913,7 @@ class CloudPush115(_PluginBase):
                 f"待重试: {len(self._queue) if self._queue else 0}\n"
                 f"最近扫描: {self._last_run or '尚未运行'}")
 
-    def _local_dir_items(self, max_items: int = 1200, max_depth: int = 6) -> List[Dict[str, str]]:
+    def _local_dir_items(self, max_items: int = 1200, max_depth: int = 1) -> List[Dict[str, str]]:
         """缓存扫描 MP 本地配置根、Docker 所有挂载点和已选路径。"""
         import os, time
         cache = getattr(self, "_local_dir_cache", {})
@@ -1376,7 +1385,7 @@ class CloudPush115(_PluginBase):
             "notify": False,
             "cookie": "",
             "user_agent": "",
-            "watch_paths": "",
+            "watch_paths": [],
             "remote_dir": "",
             "extensions": "",
             "scan_interval": 60,
