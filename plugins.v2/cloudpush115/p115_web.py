@@ -515,7 +515,8 @@ class P115WebClient:
             },
         )
         try:
-            return json.loads(ecdh_aes_decrypt(raw))
+            from .response import decode_upload_response
+            return decode_upload_response(raw)
         except Exception as exc:  # noqa: BLE001
             raise P115WebError(f"解析上传响应失败: {exc}") from exc
 
