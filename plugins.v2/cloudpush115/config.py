@@ -14,7 +14,7 @@ DEFAULTS = {
     "extensions": "", "scan_interval": 60, "retry_interval": 600,
     "max_attempts": 0, "retry_notfound": True,
     "qb_enabled": False, "qb_host": "", "qb_username": "admin", "qb_password": "",
-    "qb_done_tag": "已整理", "qb_interval": 10, "qb_settle": 5, "qb_path_mappings": "",
+    "qb_done_tag": "已整理", "qb_interval": 5, "qb_settle": 0, "qb_path_mappings": "",
 }
 OBSOLETE = {"access_token", "login_mode", "local_browse_path", "remote_browse_cid",
             "remote_browse_path", "watch_paths_display", "remote_dir_display"}

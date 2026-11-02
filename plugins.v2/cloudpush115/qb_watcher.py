@@ -160,7 +160,7 @@ class QBWatcher:
     def snapshot(self):
         return deepcopy(list(self._tasks.values()))
 
-    def process_once(self, remote_dir="", max_torrents=20):
+    def process_once(self, remote_dir="", max_torrents=0):
         stats = {"checked": 0, "pushed": 0, "skipped": 0, "failed": 0}
         torrents = self.qb.completed_torrents(done_tag=self.done_tag)
         active = {str(x.get("hash")) for x in torrents if isinstance(x, dict) and x.get("hash")}
@@ -174,7 +174,7 @@ class QBWatcher:
                 self._publish(torrent, "waiting", "已发现已完成种子，等待本轮路径核对", total=0, ready=0)
         if torrents:
             start = self._cursor % len(torrents)
-            ordered = (torrents[start:] + torrents[:start])[:max(1, int(max_torrents))]
+            ordered = (torrents[start:] + torrents[:start]) if max_torrents <= 0 else (torrents[start:] + torrents[:start])[:max(1, int(max_torrents))]
             self._cursor = (start + len(ordered)) % len(torrents)
         else:
             ordered = []

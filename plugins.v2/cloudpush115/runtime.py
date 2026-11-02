@@ -61,6 +61,7 @@ class RuntimeMixin:
         self._qb_watcher = None
         self._qb_watcher_generation = -1
         self._qb_config_error = ""
+        self._qb_running = False
         self._clients = {}
         self._remote_ids = {}
         self._job_context = threading.local()
@@ -189,12 +190,31 @@ class RuntimeMixin:
                 scheduler.add_job(self._scheduled, "interval", seconds=min(60, cfg["retry_interval"]),
                                   args=["retry", generation], id="cloudpush115_retry", coalesce=True, max_instances=1)
             if cfg["qb_enabled"]:
-                scheduler.add_job(self._scheduled, "interval", seconds=cfg["qb_interval"],
-                                  args=["qb", generation], id="cloudpush115_qb", coalesce=True, max_instances=1)
+                scheduler.add_job(self._qb_tick, "interval", seconds=max(3, cfg["qb_interval"]),
+                                  args=[generation], id="cloudpush115_qb", coalesce=True, max_instances=1)
             self._scheduler = scheduler
             scheduler.start()
         except Exception as exc:
             self._set_error("启动调度失败：" + clean_message(exc, cfg))
+
+    def _qb_tick(self, generation: int):
+        """Runs on its own APScheduler thread; never queued behind scan/retry."""
+        if not self._is_current(generation):
+            return
+        with self._state_lock:
+            if self._qb_running:
+                return
+            self._qb_running = True
+            cfg = deepcopy(self._config)
+            self._job_context.config, self._job_context.generation = cfg, generation
+        try:
+            self._run_qb(cfg, generation)
+        except Exception as exc:
+            self._set_error("qB 任务异常：" + clean_message(exc, cfg))
+        finally:
+            with self._state_lock:
+                self._qb_running = False
+            self._persist()
 
     def _scheduled(self, kind: str, generation: int):
         if self._is_current(generation):
@@ -563,7 +583,7 @@ class RuntimeMixin:
                 QBClient(**credentials), self._qb_push_one,
                 media_exts=[x.strip() for x in cfg["extensions"].split(",") if x.strip()] or None,
                 logger=self._qb_log, done_tag=cfg["qb_done_tag"],
-                stable_checks=2, stable_interval=cfg["qb_settle"],
+                stable_checks=1, stable_interval=cfg["qb_settle"],
                 status_callback=self._qb_status, path_mappings=cfg["qb_path_mappings"],
                 retry_interval=cfg["retry_interval"],
             )
