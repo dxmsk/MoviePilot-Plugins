@@ -542,7 +542,7 @@ class P115WebClient:
                     "message": f"读取文件失败: {exc}", "sha1": "", "size": 0,
                     "need_check": False}
         if size <= 0:
-            return {"ok": False, "reuse": False, "pickcode": "",
+            return {"ok": False, "reuse": False, "pickcode": "", "skipped": True,
                     "message": "空文件跳过", "sha1": "", "size": 0,
                     "need_check": False}
         if total_min_size and size < total_min_size:
@@ -583,9 +583,18 @@ class P115WebClient:
             sign_key = resp.get("sign_key") or ""
             sign_check = resp.get("sign_check") or ""
             sign_val = self._calc_sign_val(path, sign_check)
+            if sign_val:
+                try:
+                    check_stat = path.stat()
+                    unchanged = (check_stat.st_size, check_stat.st_mtime_ns, check_stat.st_ino) == (
+                        initial_stat.st_size, initial_stat.st_mtime_ns, initial_stat.st_ino)
+                    if not unchanged:
+                        sign_val = ""
+                except OSError:
+                    sign_val = ""
             if not sign_val:
                 return {"ok": False, "reuse": False, "pickcode": "",
-                        "message": "二次校验失败：无法读取文件区间",
+                        "message": "二次校验失败：文件发生变化或无法完整读取区间",
                         "sha1": sha1, "size": size, "need_check": True}
             payload["sign_key"] = sign_key
             payload["sign_val"] = sign_val
@@ -599,6 +608,9 @@ class P115WebClient:
                     "message": f"秒传失败: {resp.get('error') or resp.get('message') or resp.get('status')}",
                     "sha1": sha1, "size": size, "need_check": True}
 
-        return {"ok": False, "reuse": False, "pickcode": "",
-                "message": f"未命中秒传（status={resp.get('status')}），需真实上传",
+        upload_status = resp.get("status")
+        return {"ok": False, "reuse": False, "pickcode": "", "status": upload_status,
+                "not_found": upload_status == 1,
+                "message": ("未命中秒传（status=1），需真实上传" if upload_status == 1 else
+                            f"115返回异常状态 {upload_status}: {resp.get('error') or resp.get('message') or '缺少有效状态'}"),
                 "sha1": sha1, "size": size, "need_check": False}

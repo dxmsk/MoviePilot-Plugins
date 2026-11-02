@@ -71,8 +71,8 @@ class QBClient:
             if e.code in (401, 403):
                 raise QBAuthError(f"qBittorrent 鉴权失败({e.code})，请检查账号密码/API Key")
             raise QBError(f"qBittorrent 请求失败 {e.code}: {path}")
-        except URLError as e:
-            raise QBError(f"无法连接 qBittorrent({self.host}): {e.reason}")
+        except (URLError, TimeoutError, OSError) as e:
+            raise QBError(f"无法连接 qBittorrent({self.host}): {getattr(e, 'reason', str(e))}")
         if raw:
             return text
         try:
@@ -90,7 +90,7 @@ class QBClient:
         text = self._request("auth/login",
                              {"username": self.username, "password": self.password},
                              method="POST", raw=True)
-        if "Ok" not in (text or ""):
+        if str(text or "").strip() != "Ok.":
             raise QBAuthError("qBittorrent 登录失败，请检查用户名/密码")
         self._logged_in = True
 
@@ -101,6 +101,16 @@ class QBClient:
     # ------------------------------------------------------------------ #
     # 业务接口
     # ------------------------------------------------------------------ #
+    def _authed(self, path: str, data=None, method="GET"):
+        self._ensure()
+        try:
+            return self._request(path, data, method=method)
+        except QBAuthError:
+            # qB expires SID cookies. Re-authenticate once, not every polling round forever.
+            self._logged_in = False
+            self._ensure()
+            return self._request(path, data, method=method)
+
     def torrents_info(self, flt: Optional[str] = None,
                       hashes: Optional[List[str]] = None) -> List[Dict[str, Any]]:
         """列出种子。flt: all/downloading/completed/... """
@@ -111,21 +121,25 @@ class QBClient:
         if hashes:
             params["hashes"] = "|".join(hashes)
         qs = ("?" + urlencode(params)) if params else ""
-        data = self._request(f"torrents/info{qs}")
-        return data if isinstance(data, list) else []
+        data = self._authed(f"torrents/info{qs}")
+        if not isinstance(data, list):
+            raise QBError("qB种子列表响应不是JSON数组")
+        return data
 
     def torrents_files(self, torrent_hash: str) -> List[Dict[str, Any]]:
         """列出某个种子内的文件（name/size/progress/priority）。"""
         self._ensure()
-        data = self._request(f"torrents/files?hash={torrent_hash}")
-        return data if isinstance(data, list) else []
+        data = self._authed("torrents/files?" + urlencode({"hash": torrent_hash}))
+        if not isinstance(data, list):
+            raise QBError("qB文件清单响应不是JSON数组")
+        return data
 
     def add_tags(self, hashes: List[str], tags: List[str]) -> None:
         """给种子加标签。"""
         if not hashes or not tags:
             return
         self._ensure()
-        self._request("torrents/addTags",
+        self._authed("torrents/addTags",
                       {"hashes": "|".join(hashes), "tags": ",".join(tags)},
                       method="POST")
 
@@ -158,10 +172,11 @@ class QBClient:
                 continue
             # 只处理确实 100% 完成的
             try:
-                if float(t.get("progress", 1)) < 1.0:
+                progress = float(t.get("progress", -1))
+                if not 1.0 <= progress <= 1.0:
                     continue
-            except (TypeError, ValueError):
-                pass
+            except (TypeError, ValueError, OverflowError):
+                continue
             result.append(t)
         return result
 
