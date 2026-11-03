@@ -293,13 +293,16 @@ class LocalFiles:
         return [{"path": r["path"], "name": r["name"], "is_dir": True,
                  "size": 0, "selectable": True} for r in self.roots]
 
+    def _matches_extension(self, name):
+        return "*" in self.extensions or os.path.splitext(name)[1][1:].casefold() in self.extensions
+
     def _entry(self, entry):
         if entry.name.startswith(".") or entry.is_symlink():
             return None
         info = entry.stat(follow_symlinks=False)
         is_dir = stat.S_ISDIR(info.st_mode)
         if not is_dir and (not stat.S_ISREG(info.st_mode)
-                           or os.path.splitext(entry.name)[1][1:].casefold() not in self.extensions):
+                           or not self._matches_extension(entry.name)):
             return None
         path = self.validate(entry.path)
         return {"path": path, "name": entry.name, "is_dir": is_dir,
@@ -503,8 +506,7 @@ class LocalFiles:
                         if stat.S_ISDIR(info.st_mode):
                             children.append(self.validate(item.path, directory=True))
                         elif stat.S_ISREG(info.st_mode):
-                            if (os.path.splitext(item.name)[1][1:].casefold() in self.extensions
-                                    or item.path in explicit):
+                            if self._matches_extension(item.name) or item.path in explicit:
                                 include(item.path, selected)
                 pending.extend(sorted(children, reverse=True))
         for path in sorted(explicit):

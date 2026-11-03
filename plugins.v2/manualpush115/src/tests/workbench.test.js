@@ -4,6 +4,16 @@ import { compileComponent, config, defer, fixture, mount, ok, settle } from './h
 const { component: Workbench, source } = await compileComponent('Workbench')
 const props = f => ({ api: f.api, pluginId: 'copy-instance', sourcePluginId: 'source' })
 
+test('actual legacy V2 parent plugin identity works when only api is passed', async t => {
+  const f = fixture()
+  const { state: { vm } } = mount(t, Workbench, { api: f.api }, false, { __parentPlugin: { id: 'legacy-copy' } })
+  await settle()
+  assert.equal(vm.loaded, true)
+  assert.equal(f.gets[0], 'plugin/legacy-copy/status')
+  await vm.local.show()
+  assert.equal(f.gets.at(-1), 'plugin/legacy-copy/roots')
+})
+
 test('first load works hidden; idle performs no roots/remote/settings calls or polling', async t => {
   const f = fixture(); const { state: { vm }, timers } = mount(t, Workbench, props(f), true); await settle()
   assert.equal(vm.loaded, true); assert.equal(f.gets.length, 1); assert.match(f.gets[0], /^plugin\/copy-instance\/status$/)

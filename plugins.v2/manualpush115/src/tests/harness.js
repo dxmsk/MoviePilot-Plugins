@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict'
 import { readFile } from 'node:fs/promises'
-import { createRenderer, nextTick } from 'vue'
+import { createRenderer, h, nextTick } from 'vue'
 import { parse, compileScript, compileTemplate, compileStyle } from 'vue/compiler-sfc'
 
 export const defer = () => { let resolve, reject; const promise = new Promise((a, b) => { resolve = a; reject = b }); return { promise, resolve, reject } }
@@ -48,12 +48,16 @@ export function mount(t, component, props = {}, documentHidden = false, provided
   globalThis.document = { hidden: documentHidden, addEventListener: (name, fn) => listeners.set(name, fn), removeEventListener: name => listeners.delete(name) }
   const events = {}
   const handlers = Object.fromEntries((component.emits || []).map(name => [`on${name[0].toUpperCase()}${name.slice(1)}`, (...args) => { (events[name] ||= []).push(args) }]))
-  const app = renderer.createApp({ ...component, render: () => null }, { ...props, ...handlers })
+  const child = { ...component, render: () => null }
+  const parentPlugin = provided.__parentPlugin
+  const app = parentPlugin
+    ? renderer.createApp({ props: ['plugin'], render: () => h(child, { ...props, ...handlers }) }, { plugin: parentPlugin })
+    : renderer.createApp(child, { ...props, ...handlers })
   app.testEvents = events
   for (const [key, value] of Object.entries(provided)) app.provide(key, value)
   app.mount({ children: [] })
   t.after(() => { app.unmount(); Object.assign(globalThis, originals) })
-  return { app, state: app._instance.setupState, timers, listeners }
+  return { app, state: (parentPlugin ? app._instance.subTree.component : app._instance).setupState, timers, listeners }
 }
 export async function compileComponent(name) {
   const filename = new URL(`../components/${name}.vue`, import.meta.url)

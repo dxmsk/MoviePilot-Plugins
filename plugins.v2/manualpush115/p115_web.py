@@ -14,6 +14,9 @@ import time
 from http.cookiejar import CookieJar
 from pathlib import Path
 from typing import Any, Dict, Optional
+from urllib.parse import urlencode
+
+
 def _decode_bytes(raw: bytes) -> str:
     """UTF-8 → GB18030 → latin-1 fallback; never raises on valid byte sequences."""
     for enc in ('utf-8-sig', 'gb18030'):

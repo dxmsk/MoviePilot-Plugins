@@ -43,4 +43,4 @@ Config 接收完整 `initialConfig`，提供 `save`／`switch`／`close`；初�
 
 Vuetify组件由 MoviePilot 宿主全局注册（VBtn/VDialog/VAlert/VProgressLinear），模板直接复用；不直导 `vuetify/components`，避免重复打包Vuetify运行时。Vue、Vuetify 联邦 shared 均 `generate:false`。不要添加 `vuetify/styles` shared 条目：originjs 即使 generate:false 仍提前构建该CSS入口，产生332KB全局style chunk。当前从源头不导入／不共享这个样式入口，不使用 `.v-`／`.mdi-` 选择器过滤，不引入全局字体图标；业务CSS全部 scoped。
 
-列表触控44px、窄屏换行、长路径断行。仅生产构建输出 `dist`；本提交不包含 dist，不修改 Python／manifest 或其他插件。浏览器实机布局验收与联邦宿主加载由发布方完成。
+列表触控44px、窄屏换行、长路径断行。发布包含完整 `dist` 及后端接口。测试旧V2时除了 API、instance props 注入，还模拟其父级 `plugin.id`（官方旧版对话框仅传 api）来定位实例。新版优先使用显式实例 props。生产包不包含本地模拟服务器或测试文件路径。
