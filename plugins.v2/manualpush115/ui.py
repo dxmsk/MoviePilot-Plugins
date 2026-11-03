@@ -170,55 +170,89 @@ class UiMixin:
 
     def get_form(self):
         self._ensure_init()
-
-        # Dynamic local mount points
         local_options = self._scan_local_options()
-
-        # Real 115 directories from Cookie (or fallback if no cookie)
         remote_options = self._scan_remote_options()
-        # Filter out None entries from error fallback
         remote_options = [r for r in remote_options if r is not None]
 
-        def field(key, label, component="VTextField", md=6, **props):
-            return node("VCol", content=[node(component, model=key, label=label,
-                        **{"density": "comfortable", "persistent-hint": True,
-                           **props})], cols=12, md=md)
-
-        def row(*items):
-            return node("VRow", content=list(items))
-
-        def heading(title, description, color="primary"):
-            return node("VCard", content=[
-                node("VCardTitle", title),
-                node("VCardText", description),
-            ], variant="tonal", color=color, **{"class": "my-3 rounded-lg"})
-
-        content = [
-            heading("115 网页 Cookie",
-                    "填写 115 网页 Cookie（包含 UID/CID/SEID）。本插件不自动扫描，仅手动秒传时使用。"),
-            row(field("cookie", "115 网页 Cookie", "VTextarea", 12, rows=3,
-                      hint="从浏览器复制完整 Cookie")),
-
-            heading("秒传路径",
-                    "点击下拉选择本地文件夹（可多选），文件夹会递归秒传所有媒体文件。"
-                    "115 目标目录可从下拉选择或手动输入。", "info"),
-            row(field("local_paths", "本地文件/文件夹（点击选择，可多选）",
-                      "VSelect", 12,
-                      items=local_options,
-                      multiple=True, chips=True, closable_chips=True, clearable=True,
-                      hint="列出 MP 容器内的挂载目录及其子目录；选择后保存设置再点秒传。")),
-            row(field("remote_dir", "115 目标目录（可选择网盘真实目录或手动输入）",
-                      "VCombobox",
-                      items=remote_options,
-                      clearable=True,
-                      placeholder="/媒体/电影",
-                      hint="网盘目标路径，不存在时自动创建；留空或 / 为根目录"),
-                field("extensions", "限制扩展名（可选）",
-                      placeholder="mkv,mp4,srt",
-                      hint="留空使用默认媒体扩展名列表；多个用逗号分隔")),
-
-            heading("其他", "高级选项，一般不需要修改。", "default"),
-            row(field("user_agent", "115 User-Agent（可选）", md=12,
-                      hint="留空使用内置 UA")),
-        ]
-        return [node("VForm", content=content)], deepcopy(DEFAULTS)
+        return [
+            {
+                "component": "VForm",
+                "content": [
+                    # ---- Cookie ----
+                    {"component": "VRow", "content": [
+                        {"component": "VCol", "props": {"cols": 12}, "content": [
+                            {"component": "VCard", "props": {"variant": "tonal", "color": "primary", "class": "my-3 rounded-lg"}, "content": [
+                                {"component": "VCardTitle", "text": "115 网页 Cookie"},
+                                {"component": "VCardText", "text": "填写 115 网页 Cookie（包含 UID/CID/SEID）。本插件不自动扫描，仅手动秒传时使用。"},
+                            ]},
+                        ]},
+                    ]},
+                    {"component": "VRow", "content": [
+                        {"component": "VCol", "props": {"cols": 12}, "content": [
+                            {"component": "VTextarea", "props": {
+                                "model": "cookie", "label": "115 网页 Cookie",
+                                "rows": 3, "hint": "从浏览器复制完整 Cookie",
+                                "persistent-hint": True,
+                            }},
+                        ]},
+                    ]},
+                    # ---- 秒传路径 ----
+                    {"component": "VRow", "content": [
+                        {"component": "VCol", "props": {"cols": 12}, "content": [
+                            {"component": "VCard", "props": {"variant": "tonal", "color": "info", "class": "my-3 rounded-lg"}, "content": [
+                                {"component": "VCardTitle", "text": "秒传路径"},
+                                {"component": "VCardText", "text": "点击下拉选择本地文件夹（可多选），文件夹会递归秒传所有媒体文件。115 目标目录可从网盘真实目录选择或手动输入。"},
+                            ]},
+                        ]},
+                    ]},
+                    {"component": "VRow", "content": [
+                        {"component": "VCol", "props": {"cols": 12}, "content": [
+                            {"component": "VSelect", "props": {
+                                "model": "local_paths",
+                                "label": "本地文件夹（点击选择，可多选）",
+                                "items": local_options,
+                                "multiple": True,
+                                "chips": True,
+                                "closable-chips": True,
+                                "clearable": True,
+                                "hint": "列出 MP 容器内的挂载目录及子目录；选择后保存再点秒传",
+                                "persistent-hint": True,
+                            }},
+                        ]},
+                    ]},
+                    {"component": "VRow", "content": [
+                        {"component": "VCol", "props": {"cols": 12, "md": 6}, "content": [
+                            {"component": "VCombobox", "props": {
+                                "model": "remote_dir",
+                                "label": "115 目标目录（可选择或手动输入）",
+                                "items": remote_options,
+                                "clearable": True,
+                                "placeholder": "/媒体/电影",
+                                "hint": "从网盘真实目录选择，或手动输入；留空为根目录",
+                                "persistent-hint": True,
+                            }},
+                        ]},
+                        {"component": "VCol", "props": {"cols": 12, "md": 6}, "content": [
+                            {"component": "VTextField", "props": {
+                                "model": "extensions",
+                                "label": "限制扩展名（可选）",
+                                "placeholder": "mkv,mp4,srt",
+                                "hint": "留空使用默认媒体扩展名列表；多个用逗号分隔",
+                                "persistent-hint": True,
+                            }},
+                        ]},
+                    ]},
+                    # ---- 其他 ----
+                    {"component": "VRow", "content": [
+                        {"component": "VCol", "props": {"cols": 12}, "content": [
+                            {"component": "VTextField", "props": {
+                                "model": "user_agent",
+                                "label": "115 User-Agent（可选）",
+                                "hint": "留空使用内置 UA",
+                                "persistent-hint": True,
+                            }},
+                        ]},
+                    ]},
+                ],
+            }
+        ], deepcopy(DEFAULTS)

@@ -12,7 +12,7 @@ class ManualPush115(RuntimeMixin, UiMixin, _PluginBase):
     plugin_name = "手动秒传115"
     plugin_desc = "浏览本地文件，勾选后一键 SHA1 秒传到 115 网盘，不自动扫描、不需要调度。"
     plugin_icon = "https://raw.githubusercontent.com/jxxghp/MoviePilot-Plugins/main/icons/upload.png"
-    plugin_version = "1.6.1"
+    plugin_version = "1.7.0"
     plugin_author = "Minis"
     author_url = "https://github.com/dxmsk/MoviePilot-Plugins"
     plugin_config_prefix = "manualpush115_"
