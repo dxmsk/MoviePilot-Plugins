@@ -12,8 +12,16 @@ from typing import Any
 
 from apscheduler.schedulers.background import BackgroundScheduler
 from fastapi import Body
-from app.core.config import settings
-from app.log import logger
+
+try:
+    from app.core.config import settings
+except ImportError:
+    from app.sdk.config import settings  # type: ignore
+
+try:
+    from app.log import logger
+except ImportError:
+    from app.sdk.logging import logger  # type: ignore
 
 from .config import (DEFAULTS, account_scope, byte_size, clean_message, human_size,
                      normalize_config, normalize_history, remote_path, signature, split_paths,
@@ -521,8 +529,10 @@ class RuntimeMixin:
 
     def _auto_qb_config(self):
         try:
-            # Actual MoviePilot V2 module; v3's app.runtime.extensions does not exist in V2.
-            from app.helper.service import ServiceConfigHelper
+            try:
+                from app.helper.service import ServiceConfigHelper
+            except ImportError:
+                from app.sdk.services import ServiceConfigHelper  # type: ignore
             for row in ServiceConfigHelper.get_downloader_configs():
                 get = row.get if isinstance(row, dict) else lambda k, default=None: getattr(row, k, default)
                 if not get("enabled", True) or "qbittorrent" not in str(get("type", "")).lower():
@@ -749,7 +759,7 @@ class RuntimeMixin:
             logger.warning(self.LOG + "发送通知失败：" + clean_message(exc, self._config))
 
     @staticmethod
-    def get_command() -> list[dict]:
+    def get_command() -> List[dict]:
         from app.schemas.types import EventType
         return [{"cmd": "/115push", "event": EventType.PluginAction, "desc": "115秒传 - 扫描并上传", "category": "插件命令", "data": {"action": "cloudpush115_scan"}},
                 {"cmd": "/115status", "event": EventType.PluginAction, "desc": "115秒传 - 队列状态", "category": "插件命令", "data": {"action": "cloudpush115_status"}}]

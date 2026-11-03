@@ -1,5 +1,6 @@
 """Configuration normalization and non-secret state helpers for CloudPush115."""
 from __future__ import annotations
+from __future__ import annotations
 
 import hashlib
 import os
