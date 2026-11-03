@@ -48,14 +48,15 @@
     "name": "手动秒传115",
     "description": "选择本地文件一键SHA1秒传到115网盘，无自动扫描、无调度，手动操作即时完成。",
     "labels": "网盘,工具",
-    "version": "1.0.0",
+    "version": "1.1.0",
     "icon": "https://raw.githubusercontent.com/jxxghp/MoviePilot-Plugins/main/icons/clouddisk.png",
     "author": "Minis",
     "level": 1,
     "v3": false,
     "release": true,
     "history": {
-      "v1.0.0": "首个版本：浏览本地文件、选择后一键秒传到 115 指定目录，支持文件和目录批量选择、扩展名过滤、传输历史记录。"
+      "v1.1.0": "新增文件浏览器交互页面：逐层浏览本地目录、勾选文件和文件夹、指定115目标目录、一键秒传；实时进度条和秒传记录。",
+      "v1.0.0": "首个版本：API 支持浏览本地文件、批量秒传、扩展名过滤、传输历史。"
     }
   }
 }

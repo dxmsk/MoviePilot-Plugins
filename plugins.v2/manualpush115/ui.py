@@ -99,8 +99,9 @@ class UiMixin:
         return "vuetify", None
 
     def get_page(self):
-        status = self.api_status()
-        return render_page(status, type(self).__name__)
+        from .browser_html import BROWSER_HTML
+        html = BROWSER_HTML.replace("__PREFIX__", type(self).__name__)
+        return [node("VHtml", html=html)]
 
     def get_form(self):
         def field(key, label, component="VTextField", md=6, **props):
