@@ -79,22 +79,35 @@ def render_page(snapshot: dict, plugin_id: str, include_actions: bool = True):
     stats = data["stats"]
     phase = {"indexing": "扫描本地文件", "ready": "索引完成", "uploading": "处理本地队列", "retry": "处理重试队列", "qb": "检查qB任务", "idle": "空闲"}.get(data["phase"], data["phase"])
     header = node("VCard", content=[
-        node("VCardTitle", "☁️ 115 网盘秒传", **{"class": "text-h5 font-weight-bold"}),
-        node("VCardText", f"{phase} · v{data['version']} · 快照 {data['snapshot_at']}", **{"class": "pt-0 text-caption"}),
+        node("VCardTitle", content=[
+            node("VIcon", icon="mdi-cloud-upload", color="primary", **{"class": "mr-2"}),
+            node("span", "115 网盘秒传"),
+        ], **{"class": "d-flex align-center text-h6 font-weight-bold"}),
+        node("VCardText", f"{phase} · v{data['version']} · 快照 {data['snapshot_at']}", **{"class": "pt-0 text-caption text-medium-emphasis"}),
         node("VCardText", content=[
-            action(plugin_id, "刷新显示", "refresh", method="get"),
+            action(plugin_id, "刷新显示", "refresh", method="get", icon="mdi-refresh"),
             action(plugin_id, "扫描并秒传", "scan", "mdi-cloud-upload"),
             action(plugin_id, "刷新本地队列", "index", "mdi-folder-search"),
             action(plugin_id, "重试失败文件", "retry", "mdi-restart", color="warning"),
         ], **{"class": "pt-0 d-flex flex-wrap"}),
-    ], variant="tonal", color="primary", **{"class": "rounded-lg mb-4"})
+    ], variant="outlined", **{"class": "rounded-lg mb-4"})
     if not include_actions:
         header["content"][-1] = node("VCardText", "此仪表盘由MoviePilot定时刷新；扫描和重试操作请在插件详情页执行。", **{"class": "pt-0 text-caption"})
-    metrics = [("success", "成功文件", "success"), ("local", "本地待处理", "info"),
-               ("retry", "待重试", "warning"), ("qb", "qB任务", "primary"), ("indexed", "已索引文件", "info"), ("roots", "监控路径", "secondary")]
+    metrics = [("success", "已秒传", "mdi-check-circle-outline", "success"),
+               ("local", "本地待处理", "mdi-folder-open-outline", "info"),
+               ("retry", "待重试", "mdi-restart", "warning"),
+               ("qb", "qB 任务", "mdi-download-network-outline", "primary"),
+               ("indexed", "已索引", "mdi-file-document-multiple-outline", "info"),
+               ("roots", "监控路径", "mdi-folder-multiple-outline", "secondary")]
     page = [header, node("VRow", content=[node("VCol", content=[node("VCard", content=[
-        node("VCardText", content=[node("div", stats[key], **{"class": "text-h5 font-weight-bold"}), node("div", title, **{"class": "text-caption"})])
-    ], variant="tonal", color=color, **{"class": "rounded-lg"})], cols=6, md=2) for key, title, color in metrics], dense=True, **{"class": "mb-3"})]
+        node("VCardText", content=[
+            node("div", content=[
+                node("div", stats[key], **{"class": "text-h5 font-weight-bold"}),
+                node("div", title, **{"class": "text-caption text-medium-emphasis"}),
+            ]),
+            node("VIcon", icon=icon, color=color, **{"style": "position:absolute;top:16px;right:16px;opacity:.6;"}),
+        ], **{"style": "position:relative;"})
+    ], variant="outlined", **{"class": "rounded-lg"})], cols=6, md=2) for key, title, icon, color in metrics], dense=True, **{"class": "mb-3"})]
     for text in (data.get("storage_error"), data.get("qb_error"), data.get("last_error")):
         if text:
             page.append(node("VAlert", text, type="warning", variant="tonal", **{"class": "mb-3", "style": "overflow-wrap:anywhere;"}))
@@ -128,10 +141,10 @@ def render_page(snapshot: dict, plugin_id: str, include_actions: bool = True):
 class UiMixin:
     @staticmethod
     def get_render_mode():
-        return "vue", "dist/assets"
+        return "vuetify", None
 
     def get_page(self):
-        return []
+        return render_page(self._snapshot(limit=100), type(self).__name__)
 
     def get_dashboard_meta(self):
         return [{"key": "main", "name": "115秒传主面板"}]
