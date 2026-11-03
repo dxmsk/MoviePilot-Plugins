@@ -41,10 +41,10 @@ def human_size(n) -> str:
     return f"{b:.1f} PB"
 
 
-def render_browser(plugin_id: str, browse_path: str, entries: list,
-                   parent: str | None, selected: dict, running: bool,
-                   progress: str, has_cookie: bool, remote_dir: str,
-                   history: list, version: str):
+def render_browser(plugin_id, browse_path, entries,
+                   parent, selected, running,
+                   progress, has_cookie, remote_dir,
+                   history, version):
     pid = plugin_id
     page = []
 
@@ -206,24 +206,30 @@ class UiMixin:
         return "vuetify", None
 
     def get_page(self):
+        # type: () -> List[dict]
         import os
-        path = self._browse_path
-        entries = self._list_dir(path)
-        parent = os.path.dirname(path) if path != "/" else None
-        status = self.api_status()
-        return render_browser(
-            plugin_id=type(self).__name__,
-            browse_path=path,
-            entries=entries,
-            parent=parent,
-            selected=self._selected,
-            running=status["running"],
-            progress=status["progress"],
-            has_cookie=status["has_cookie"],
-            remote_dir=status["remote_dir"],
-            history=status["history"],
-            version=status.get("version", ""),
-        )
+        try:
+            self._ensure_init()
+            path = getattr(self, "_browse_path", "/")
+            entries = self._list_dir(path)
+            parent = os.path.dirname(path) if path != "/" else None
+            status = self.api_status()
+            return render_browser(
+                plugin_id=type(self).__name__,
+                browse_path=path,
+                entries=entries,
+                parent=parent,
+                selected=getattr(self, "_selected", {}),
+                running=status.get("running", False),
+                progress=status.get("progress", ""),
+                has_cookie=status.get("has_cookie", False),
+                remote_dir=status.get("remote_dir", "/"),
+                history=status.get("history", []),
+                version=status.get("version", ""),
+            )
+        except Exception as exc:
+            return [node("VAlert", "页面渲染失败：{}。请保存设置后刷新页面。".format(exc),
+                         type="error", variant="tonal")]
 
     def get_form(self):
         def field(key, label, component="VTextField", md=6, **props):

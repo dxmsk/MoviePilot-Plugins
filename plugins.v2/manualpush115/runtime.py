@@ -1,4 +1,10 @@
-"""Manual 115 push: user picks files, one click upload."""
+"""Manual 115 push: user picks files, one click upload.
+
+Compatible with both MoviePilot V2 and V3.
+V2: from app.plugins import _PluginBase; from app.log import logger
+V3: from app.sdk.plugins import _PluginBase; from app.sdk.logging import logger
+The try/except import pattern keeps a single codebase running on both hosts.
+"""
 from __future__ import annotations
 
 import os
@@ -7,10 +13,12 @@ import time
 import traceback
 from copy import deepcopy
 from pathlib import Path
-from typing import Any
+from typing import Any, Dict, List, Optional, Set, Tuple
 
-from app.log import logger
-from app.plugins import _PluginBase
+try:
+    from app.log import logger
+except ImportError:
+    from app.sdk.logging import logger
 
 from .filehash import sha1_file
 from .p115_web import P115WebClient, P115WebError
@@ -29,9 +37,9 @@ def human_size(n: Any) -> str:
         return "—"
     for unit in ("B", "KB", "MB", "GB", "TB"):
         if abs(b) < 1024:
-            return f"{b:.1f} {unit}" if unit != "B" else f"{b} B"
+            return "{:.1f} {}".format(b, unit) if unit != "B" else "{} B".format(b)
         b /= 1024
-    return f"{b:.1f} PB"
+    return "{:.1f} PB".format(b)
 
 
 def stamp(t: Any = None) -> str:
@@ -44,12 +52,34 @@ def stamp(t: Any = None) -> str:
 
 
 class RuntimeMixin:
-    """Stateless manual push — no scheduler, no persistent queues."""
+    """Stateless manual push — no scheduler, no persistent queues.
+
+    All instance attributes are guarded by _ensure_init() so that get_page()
+    and get_api() work even if the host calls them before init_plugin().
+    """
 
     STATE_KEY = "manualpush115_state"
     _lock = threading.Lock()
 
+    def _ensure_init(self) -> None:
+        """Lazy-initialize all runtime attributes if init_plugin hasn't run yet."""
+        if hasattr(self, "_mp115_initialized"):
+            return
+        self._config = {
+            "cookie": "",
+            "user_agent": "",
+            "remote_dir": "/",
+            "extensions": "",
+        }  # type: Dict[str, str]
+        self._history = []  # type: List[Dict[str, Any]]
+        self._running = False
+        self._progress = ""
+        self._browse_path = "/"
+        self._selected = {}  # type: Dict[str, Dict[str, Any]]
+        self._mp115_initialized = True
+
     def init_plugin(self, config: dict = None) -> None:
+        self._ensure_init()
         config = config or {}
         self._config = {
             "cookie": str(config.get("cookie") or "").strip(),
@@ -57,20 +87,19 @@ class RuntimeMixin:
             "remote_dir": str(config.get("remote_dir") or "/").strip() or "/",
             "extensions": str(config.get("extensions") or "").strip(),
         }
-        stored = self.get_data(self.STATE_KEY) or {}
+        try:
+            stored = self.get_data(self.STATE_KEY) or {}
+        except Exception:
+            stored = {}
         self._history = list(stored.get("history") or [])[-500:]
         self._running = False
         self._progress = ""
-        # Server-side browser state (survives page refresh)
-        if not hasattr(self, "_browse_path"):
-            self._browse_path = "/"
-        if not hasattr(self, "_selected"):
-            self._selected: dict[str, dict] = {}  # path → {name, is_dir, size}
 
     def get_state(self) -> bool:
+        self._ensure_init()
         return bool(self._config.get("cookie"))
 
-    def get_api(self) -> list[dict]:
+    def get_api(self) -> List[Dict[str, Any]]:
         return [
             {"path": "/status", "endpoint": self.api_status, "methods": ["GET"],
              "auth": "bear", "summary": "状态与历史"},
@@ -91,10 +120,11 @@ class RuntimeMixin:
     # ---- API endpoints ----
 
     def api_status(self) -> dict:
+        self._ensure_init()
         return {
             "success": True,
             "has_cookie": bool(self._config.get("cookie")),
-            "remote_dir": self._config["remote_dir"],
+            "remote_dir": self._config.get("remote_dir") or "/",
             "running": self._running,
             "progress": self._progress,
             "history": list(reversed(self._history[-100:])),
@@ -104,24 +134,24 @@ class RuntimeMixin:
         }
 
     def api_navigate(self, path: str = "/") -> dict:
+        self._ensure_init()
         path = os.path.abspath(path) if path and path != "/" else "/"
         if path != "/" and not os.path.isdir(path):
-            return {"success": False, "message": f"目录不存在：{path}"}
+            return {"success": False, "message": "目录不存在：{}".format(path)}
         self._browse_path = path
         return {"success": True}
 
     def api_select(self, path: str = "", action: str = "toggle") -> dict:
-        """action: toggle / select / deselect / select_all_files / deselect_all"""
+        self._ensure_init()
         if action == "deselect_all":
             self._selected.clear()
             return {"success": True, "selected_count": 0}
         if action == "select_all_files":
-            entries = self._list_dir(self._browse_path)
-            for e in entries:
+            for e in self._list_dir(self._browse_path):
                 self._selected[e["path"]] = e
             return {"success": True, "selected_count": len(self._selected)}
         path = os.path.abspath(path) if path else ""
-        if not path or (not os.path.exists(path)):
+        if not path or not os.path.exists(path):
             return {"success": False, "message": "路径无效"}
         if action == "deselect" or (action == "toggle" and path in self._selected):
             self._selected.pop(path, None)
@@ -136,51 +166,59 @@ class RuntimeMixin:
             self._selected[path] = entry
         return {"success": True, "selected_count": len(self._selected)}
 
+    def api_clear(self) -> dict:
+        self._ensure_init()
+        self._selected.clear()
+        return {"success": True, "selected_count": 0}
+
     def api_push(self, remote_dir: str = None) -> dict:
+        self._ensure_init()
         if not self._selected:
             return {"success": False, "message": "未选择文件，请先在文件浏览器中勾选"}
         if not self._config.get("cookie"):
             return {"success": False, "message": "未配置 115 Cookie，请在设置中填写"}
         if self._running:
             return {"success": False, "message": "正在秒传中，请等待完成"}
-        remote = (remote_dir or self._config["remote_dir"]).strip() or "/"
+        remote = (remote_dir or self._config.get("remote_dir") or "/").strip() or "/"
         paths = list(self._selected.keys())
         files = self._collect_files(paths)
         done = {r["path"] for r in self._history if r.get("status") == "success"}
         fresh = [f for f in files if f not in done]
         skipped = len(files) - len(fresh)
         if not fresh:
-            return {"success": True, "message": f"选中的 {len(files)} 个文件均已秒传成功"}
+            return {"success": True, "message": "选中的 {} 个文件均已秒传成功".format(len(files))}
         self._selected.clear()
         threading.Thread(target=self._push_files, args=(fresh, remote), daemon=True).start()
-        msg = f"已开始秒传 {len(fresh)} 个文件到 {remote}"
+        msg = "已开始秒传 {} 个文件到 {}".format(len(fresh), remote)
         if skipped:
-            msg += f"（跳过 {skipped} 个已成功）"
+            msg += "（跳过 {} 个已成功）".format(skipped)
         return {"success": True, "message": msg}
 
     def api_test(self) -> dict:
+        self._ensure_init()
         if not self._config.get("cookie"):
             return {"success": False, "message": "未配置 Cookie"}
         try:
             client = self._get_client()
             info = client.check_login()
             name = info.get("user_name") or info.get("user_id") or "已登录"
-            return {"success": True, "message": f"登录有效：{name}"}
+            return {"success": True, "message": "登录有效：{}".format(name)}
         except Exception as exc:
-            return {"success": False, "message": f"凭据无效：{exc}"}
+            return {"success": False, "message": "凭据无效：{}".format(exc)}
 
     def api_browse(self, path: str = "") -> dict:
-        """JSON API for directory listing (kept for external callers)."""
+        self._ensure_init()
         path = os.path.abspath(path) if path and path != "/" else "/"
         if path != "/" and not os.path.isdir(path):
-            return {"success": False, "message": f"目录不存在：{path}"}
+            return {"success": False, "message": "目录不存在：{}".format(path)}
         entries = self._list_dir(path)
         parent = os.path.dirname(path) if path != "/" else None
         return {"success": True, "path": path, "parent": parent, "entries": entries}
 
     # ---- internal helpers ----
 
-    def _list_dir(self, path: str) -> list[dict]:
+    def _list_dir(self, path):
+        # type: (str) -> List[Dict[str, Any]]
         if not path or path == "/":
             roots = ["/media", "/mnt", "/downloads", "/data", "/volume1", "/opt",
                      "/movie", "/tv", "/music", "/video"]
@@ -198,7 +236,7 @@ class RuntimeMixin:
                 if os.path.isdir(full):
                     entries.append({"name": name, "path": full, "is_dir": True, "size": 0})
                 elif os.path.isfile(full):
-                    if exts and not any(name.lower().endswith(f".{e}") for e in exts):
+                    if exts and not any(name.lower().endswith("." + e) for e in exts):
                         continue
                     try:
                         size = os.path.getsize(full)
@@ -210,7 +248,8 @@ class RuntimeMixin:
             pass
         return entries[:2000]
 
-    def _collect_files(self, paths: list[str]) -> list[str]:
+    def _collect_files(self, paths):
+        # type: (List[str]) -> List[str]
         exts = self._allowed_extensions()
         dirs = set()
         explicit_files = []
@@ -223,7 +262,7 @@ class RuntimeMixin:
         filtered = []
         for f in explicit_files:
             if not any(f.startswith(d + os.sep) for d in dirs):
-                if not exts or any(f.lower().endswith(f".{e}") for e in exts):
+                if not exts or any(f.lower().endswith("." + e) for e in exts):
                     filtered.append(f)
         for d in sorted(dirs):
             if any(d.startswith(parent + os.sep) for parent in dirs if parent != d):
@@ -233,13 +272,19 @@ class RuntimeMixin:
                     if name.startswith("."):
                         continue
                     full = os.path.join(root, name)
-                    if exts and not any(name.lower().endswith(f".{e}") for e in exts):
+                    if exts and not any(name.lower().endswith("." + e) for e in exts):
                         continue
                     filtered.append(full)
-        seen = set()
-        return [f for f in filtered if f not in seen and not seen.add(f)]
+        seen = set()  # type: Set[str]
+        result = []
+        for f in filtered:
+            if f not in seen:
+                seen.add(f)
+                result.append(f)
+        return result
 
-    def _push_files(self, files: list[str], remote_dir: str):
+    def _push_files(self, files, remote_dir):
+        # type: (List[str], str) -> None
         with self._lock:
             if self._running:
                 return
@@ -256,7 +301,8 @@ class RuntimeMixin:
                     size = os.path.getsize(filepath)
                 except OSError:
                     size = 0
-                self._progress = f"{i}/{total} {name} ({human_size(size)}) · 成功{success} 失败{failed}"
+                self._progress = "{}/{} {} ({}) · 成功{} 失败{}".format(
+                    i, total, name, human_size(size), success, failed)
                 record = {"name": name, "path": filepath, "remote_dir": remote_dir,
                           "size": size, "time": stamp()}
                 try:
@@ -279,34 +325,35 @@ class RuntimeMixin:
                     record.update(status="failed", message=str(exc))
                     failed += 1
                     consecutive_errors += 1
-                    logger.warning(f"{LOG}秒传失败 {name}: {exc}")
+                    logger.warning("{LOG}秒传失败 {name}: {exc}".format(LOG=LOG, name=name, exc=exc))
                 self._history.append(record)
                 if i % 5 == 0 or i == total or record["status"] == "failed":
                     self._persist()
                 if consecutive_errors >= 10:
-                    self._progress = f"中止：连续10个失败，请检查网络或Cookie · 成功{success} 失败{failed}"
-                    logger.error(f"{LOG}连续失败10次，中止")
+                    self._progress = "中止：连续10个失败 · 成功{} 失败{}".format(success, failed)
+                    logger.error("{}连续失败10次，中止".format(LOG))
                     self._persist()
                     return
-            self._progress = f"完成：{success} 成功，{failed} 失败（共 {total}）"
-            logger.info(f"{LOG}{self._progress}")
+            self._progress = "完成：{} 成功，{} 失败（共 {}）".format(success, failed, total)
+            logger.info("{}{}".format(LOG, self._progress))
             self._persist()
         except Exception as exc:
-            self._progress = f"秒传异常：{exc}"
-            logger.error(f"{LOG}{traceback.format_exc()}")
+            self._progress = "秒传异常：{}".format(exc)
+            logger.error("{}{}".format(LOG, traceback.format_exc()))
             self._persist()
         finally:
             self._running = False
 
     def _get_client(self):
         key = (self._config["cookie"], self._config.get("user_agent") or "")
-        if not hasattr(self, "_client_cache") or self._client_cache[0] != key:
+        if not hasattr(self, "_client_cache") or getattr(self, "_client_cache", (None,))[0] != key:
             self._client_cache = (key, P115WebClient(
                 cookie=self._config["cookie"],
                 user_agent=self._config.get("user_agent") or ""))
         return self._client_cache[1]
 
-    def _get_dir_id(self, client, remote_dir: str) -> int:
+    def _get_dir_id(self, client, remote_dir):
+        # type: (Any, str) -> int
         if not hasattr(self, "_dir_cache"):
             self._dir_cache = {}
         if remote_dir not in self._dir_cache:
@@ -317,17 +364,20 @@ class RuntimeMixin:
         try:
             self.save_data(self.STATE_KEY, {"history": self._history[-500:]})
         except Exception as exc:
-            logger.warning(f"{LOG}保存历史失败：{exc}")
+            logger.warning("{}保存历史失败：{}".format(LOG, exc))
 
-    def _allowed_extensions(self) -> set:
+    def _allowed_extensions(self):
+        # type: () -> Set[str]
         raw = self._config.get("extensions") or ""
         if not raw.strip():
             return DEFAULT_EXTS
         return {e.strip().lower().lstrip(".") for e in raw.replace(",", " ").split() if e.strip()}
 
     @staticmethod
-    def get_command() -> list[dict]:
+    def get_command():
+        # type: () -> List[Dict[str, Any]]
         return []
 
-    def stop_service(self) -> None:
+    def stop_service(self):
+        # type: () -> None
         pass
