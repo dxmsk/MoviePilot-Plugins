@@ -182,15 +182,20 @@ class RuntimeMixin:
         if not (cfg["enabled"] or cfg["qb_enabled"]):
             return
         try:
-            scheduler = BackgroundScheduler(timezone=getattr(settings, "TZ", "Asia/Shanghai"))
+            from .config import integer
+            tz = getattr(settings, "TZ", None) or "Asia/Shanghai"
+            scheduler = BackgroundScheduler(timezone=str(tz))
+            scan_min = max(1, integer(cfg["scan_interval"], 60, 1))
+            retry_sec = max(30, integer(cfg["retry_interval"], 600, 30))
+            qb_sec = max(3, integer(cfg["qb_interval"], 5, 3))
             if cfg["enabled"]:
-                scheduler.add_job(self._scheduled, "interval", minutes=cfg["scan_interval"],
+                scheduler.add_job(self._scheduled, "interval", minutes=scan_min,
                                   args=["scan", generation], id="cloudpush115_scan", coalesce=True, max_instances=1)
             if cfg["enabled"] or cfg["qb_enabled"]:
-                scheduler.add_job(self._scheduled, "interval", seconds=min(60, cfg["retry_interval"]),
+                scheduler.add_job(self._scheduled, "interval", seconds=min(60, retry_sec),
                                   args=["retry", generation], id="cloudpush115_retry", coalesce=True, max_instances=1)
             if cfg["qb_enabled"]:
-                scheduler.add_job(self._qb_tick, "interval", seconds=max(3, cfg["qb_interval"]),
+                scheduler.add_job(self._qb_tick, "interval", seconds=qb_sec,
                                   args=[generation], id="cloudpush115_qb", coalesce=True, max_instances=1)
             self._scheduler = scheduler
             scheduler.start()
