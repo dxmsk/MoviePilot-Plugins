@@ -16,9 +16,12 @@ def node(component, text=None, content=None, **props):
 
 def action_btn(plugin_id, title, route, icon="mdi-refresh", method="post",
                color="primary", params=None, **extra):
-    btn = node("VBtn", title, variant="tonal", color=color, size="small",
-               **{"prepend-icon": icon, "class": "ma-1", **extra})
-    btn["events"] = {"click": {"api": f"plugin/{plugin_id}/{route}",
+    merged = {"variant": "tonal", "size": "small", "class": "ma-1"}
+    if icon:
+        merged["prepend-icon"] = icon
+    merged.update(extra)
+    btn = node("VBtn", title, color=color, **merged)
+    btn["events"] = {"click": {"api": "plugin/{}/{}".format(plugin_id, route),
                                 "method": method, "params": params or {}}}
     return btn
 
