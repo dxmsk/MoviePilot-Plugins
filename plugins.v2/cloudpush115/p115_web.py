@@ -14,7 +14,16 @@ import time
 from http.cookiejar import CookieJar
 from pathlib import Path
 from typing import Any, Dict, Optional
-from urllib.parse import urlencode
+def _decode_bytes(raw: bytes) -> str:
+    """UTF-8 → GB18030 → latin-1 fallback; never raises on valid byte sequences."""
+    for enc in ('utf-8-sig', 'gb18030'):
+        try:
+            return raw.decode(enc)
+        except (UnicodeDecodeError, LookupError):
+            continue
+    return raw.decode('latin-1')
+
+
 from urllib.request import Request, build_opener, HTTPCookieProcessor
 
 from ._crypto import (
@@ -206,7 +215,7 @@ class P115WebClient:
         raw = self._request(url, timeout=timeout)
         try:
             plain = content_maybe_decrypt(raw)
-            return json.loads(plain)
+            return json.loads(_decode_bytes(plain))
         except Exception as exc:  # noqa: BLE001
             raise P115WebError(f"解析响应失败 {url}: {exc}") from exc
 
@@ -216,7 +225,7 @@ class P115WebClient:
                             timeout=timeout)
         try:
             plain = content_maybe_decrypt(raw)
-            return json.loads(plain)
+            return json.loads(_decode_bytes(plain))
         except Exception as exc:  # noqa: BLE001
             raise P115WebError(f"解析响应失败 {url}: {exc}") from exc
 

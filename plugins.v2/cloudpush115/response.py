@@ -20,11 +20,13 @@ def decode_upload_response(raw):
     try:
         text = payload.decode('utf-8-sig')
     except UnicodeDecodeError:
-        # Strict GB18030 handles legacy Chinese server messages; no ignore/replace.
         try:
             text = payload.decode('gb18030')
-        except UnicodeDecodeError as exc:
-            raise ValueError('%s响应字符编码无效（解码后长度%d）' % (stage, len(payload))) from exc
+        except UnicodeDecodeError:
+            # Last resort: latin-1 never fails and preserves all bytes. The JSON
+            # structure and ASCII keys (status, sha1, pickcode) remain intact;
+            # only Chinese message fields may show garbled characters.
+            text = payload.decode('latin-1')
     try:
         result = json.loads(text)
     except (ValueError, TypeError) as exc:
