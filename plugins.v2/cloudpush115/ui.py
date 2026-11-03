@@ -128,10 +128,10 @@ def render_page(snapshot: dict, plugin_id: str, include_actions: bool = True):
 class UiMixin:
     @staticmethod
     def get_render_mode():
-        return "vuetify", None
+        return "vue", "dist/assets"
 
     def get_page(self):
-        return render_page(self._snapshot(limit=100), type(self).__name__)
+        return []
 
     def get_dashboard_meta(self):
         return [{"key": "main", "name": "115秒传主面板"}]
