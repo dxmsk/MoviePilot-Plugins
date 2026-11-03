@@ -1,5 +1,7 @@
 """
 115 网盘【网页版 Cookie】客户端（秒传专用）。
+"""
+from __future__ import annotations
 
 无需在 115 开放平台申请应用，直接用网页登录后的 Cookie 即可。
 上传走加密接口 uplb.115.com/4.0/initupload.php（ECDH-AES 加密 + sig/token 签名）。

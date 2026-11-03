@@ -385,6 +385,49 @@ class RuntimeMixin:
         # type: () -> List[Dict[str, Any]]
         return []
 
+    def _scan_remote_options(self):
+        # type: () -> List[Dict[str, str]]
+        """Read real 115 directories using saved Cookie. Returns VSelect items."""
+        cookie = self._config.get("cookie") or ""
+        if not cookie:
+            return [{"title": "/（未配置 Cookie，请先保存）", "value": "/"}]
+        try:
+            client = self._get_client()
+            result = [{"title": "/（根目录）", "value": "/"}]
+            seen = {"/"}
+            # Root level
+            root_data = client.browse(0)
+            for entry in root_data.get("entries") or []:
+                path = "/" + entry["name"]
+                if path not in seen:
+                    seen.add(path)
+                    result.append({"title": path, "value": path})
+                    # One level deeper
+                    try:
+                        sub_data = client.browse(entry["cid"])
+                        for sub in (sub_data.get("entries") or [])[:30]:
+                            sub_path = path + "/" + sub["name"]
+                            if sub_path not in seen:
+                                seen.add(sub_path)
+                                result.append({"title": "  " + sub_path, "value": sub_path})
+                    except Exception:
+                        pass
+                if len(result) > 200:
+                    break
+            # Include saved value if not already present
+            saved = self._config.get("remote_dir") or "/"
+            if saved and saved not in seen:
+                result.insert(1, {"title": saved, "value": saved})
+            return result
+        except Exception as exc:
+            logger.debug("{}读取115目录失败：{}".format(LOG, exc))
+            saved = self._config.get("remote_dir") or "/"
+            return [
+                {"title": "/（根目录）", "value": "/"},
+                {"title": saved, "value": saved} if saved != "/" else None,
+                {"title": "（读取失败：{}）".format(str(exc)[:60]), "value": saved},
+            ]
+
     def stop_service(self):
         # type: () -> None
         pass

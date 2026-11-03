@@ -171,23 +171,13 @@ class UiMixin:
     def get_form(self):
         self._ensure_init()
 
-        # Dynamic options from actual local mount points
+        # Dynamic local mount points
         local_options = self._scan_local_options()
 
-        # Common 115 target directories
-        remote_suggestions = [
-            {"title": "/", "value": "/"},
-            {"title": "/媒体", "value": "/媒体"},
-            {"title": "/媒体/电影", "value": "/媒体/电影"},
-            {"title": "/媒体/电视剧", "value": "/媒体/电视剧"},
-            {"title": "/媒体/动漫", "value": "/媒体/动漫"},
-            {"title": "/媒体/纪录片", "value": "/媒体/纪录片"},
-            {"title": "/待整理", "value": "/待整理"},
-        ]
-        # Include current saved value
-        saved_remote = self._config.get("remote_dir") or "/"
-        if saved_remote and not any(r["value"] == saved_remote for r in remote_suggestions):
-            remote_suggestions.insert(0, {"title": saved_remote, "value": saved_remote})
+        # Real 115 directories from Cookie (or fallback if no cookie)
+        remote_options = self._scan_remote_options()
+        # Filter out None entries from error fallback
+        remote_options = [r for r in remote_options if r is not None]
 
         def field(key, label, component="VTextField", md=6, **props):
             return node("VCol", content=[node(component, model=key, label=label,
@@ -217,9 +207,9 @@ class UiMixin:
                       items=local_options,
                       multiple=True, chips=True, closable_chips=True, clearable=True,
                       hint="列出 MP 容器内的挂载目录及其子目录；选择后保存设置再点秒传。")),
-            row(field("remote_dir", "115 目标目录（可选择或手动输入）",
+            row(field("remote_dir", "115 目标目录（可选择网盘真实目录或手动输入）",
                       "VCombobox",
-                      items=remote_suggestions,
+                      items=remote_options,
                       clearable=True,
                       placeholder="/媒体/电影",
                       hint="网盘目标路径，不存在时自动创建；留空或 / 为根目录"),
