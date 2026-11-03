@@ -43,5 +43,19 @@
       "v1.1.0": "新增网页 Cookie 登录方式（纯标准库 AES/RSA/LZ4，零第三方依赖），免申请开放平台即可使用。",
       "v1.0.0": "首个版本：基于 115 开放平台实现秒传；支持多路径扫描、自定义目录、失败重试(自定义间隔/次数)、全程只读不动原始路径。"
     }
+  },
+  "ManualPush115": {
+    "name": "手动秒传115",
+    "description": "选择本地文件一键SHA1秒传到115网盘，无自动扫描、无调度，手动操作即时完成。",
+    "labels": "网盘,工具",
+    "version": "1.0.0",
+    "icon": "https://raw.githubusercontent.com/jxxghp/MoviePilot-Plugins/main/icons/clouddisk.png",
+    "author": "Minis",
+    "level": 1,
+    "v3": false,
+    "release": true,
+    "history": {
+      "v1.0.0": "首个版本：浏览本地文件、选择后一键秒传到 115 指定目录，支持文件和目录批量选择、扩展名过滤、传输历史记录。"
+    }
   }
 }
