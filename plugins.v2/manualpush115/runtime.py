@@ -332,53 +332,106 @@ class RuntimeMixin:
 
     def _scan_local_options(self):
         # type: () -> List[Dict[str, str]]
-        """Discover local mount points and their first-level subdirectories for VSelect."""
-        roots = []
-        # Common MP docker mount points
-        candidates = ["/media", "/mnt", "/downloads", "/data", "/volume1",
-                      "/movie", "/tv", "/music", "/video", "/nas",
-                      "/opt", "/config"]
-        # Also read from MP settings if available
+        """Discover local mount points for VSelect. Uses DirectoryHelper like Qb115RapidUpload."""
+        candidates = []
+
+        # 1. Read from MoviePilot DirectoryHelper (most reliable)
+        try:
+            try:
+                from app.helper.directory import DirectoryHelper
+            except ImportError:
+                from app.sdk.services import DirectoryHelper  # type: ignore
+            helper = DirectoryHelper()
+            # get_dirs() returns all configured directories
+            for directory in (getattr(helper, "get_dirs", lambda: [])() or []):
+                storage = str(getattr(directory, "storage", "local") or "local").strip().lower()
+                if storage != "local":
+                    continue
+                for attr in ("download_path", "library_path", "path"):
+                    path = str(getattr(directory, attr, "") or "").strip()
+                    if path and os.path.isdir(path) and path not in candidates:
+                        candidates.append(path)
+            # get_local_download_dirs() if available
+            for directory in (getattr(helper, "get_local_download_dirs", lambda: [])() or []):
+                path = str(getattr(directory, "download_path", "") or "").strip()
+                if path and os.path.isdir(path) and path not in candidates:
+                    candidates.append(path)
+        except Exception as exc:
+            logger.debug("{}DirectoryHelper读取失败: {}".format(LOG, exc))
+
+        # 2. Read from settings as fallback
         try:
             try:
                 from app.core.config import settings as mp_settings
             except ImportError:
-                from app.sdk.config import settings as mp_settings
+                from app.sdk.config import settings as mp_settings  # type: ignore
             for attr in ("LIBRARY_PATH", "DOWNLOAD_PATH", "MEDIA_PATH",
-                         "LIBRARY_CATEGORY_PATH", "TRANSFER_PATH"):
+                         "LIBRARY_CATEGORY_PATH", "TRANSFER_PATH",
+                         "library_path", "download_path"):
                 val = getattr(mp_settings, attr, None)
-                if val and isinstance(val, str) and os.path.isdir(val):
+                if val and isinstance(val, str) and os.path.isdir(val) and val not in candidates:
                     candidates.append(val)
                 elif val and isinstance(val, (list, tuple)):
                     for v in val:
-                        if isinstance(v, str) and os.path.isdir(v):
+                        v = str(v).strip()
+                        if v and os.path.isdir(v) and v not in candidates:
                             candidates.append(v)
         except Exception:
             pass
-        # Also include currently saved paths
+
+        # 3. Scan /proc/mounts for real mount points (docker bind mounts)
+        try:
+            with open("/proc/mounts", "r") as f:
+                for line in f:
+                    parts = line.split()
+                    if len(parts) >= 2:
+                        mount_point = parts[1]
+                        # Skip system mounts
+                        if mount_point in ("/", "/proc", "/sys", "/dev", "/run", "/tmp",
+                                           "/etc", "/var", "/usr", "/bin", "/sbin", "/lib"):
+                            continue
+                        if mount_point.startswith(("/proc/", "/sys/", "/dev/")):
+                            continue
+                        if os.path.isdir(mount_point) and mount_point not in candidates:
+                            candidates.append(mount_point)
+        except Exception:
+            pass
+
+        # 4. Common fallback paths
+        for path in ["/media", "/mnt", "/downloads", "/data", "/volume1",
+                     "/movie", "/tv", "/music", "/video", "/nas"]:
+            if os.path.isdir(path) and path not in candidates:
+                candidates.append(path)
+
+        # 5. Include currently saved paths
         saved = self._config.get("local_paths") or []
         if isinstance(saved, str):
             saved = [s.strip() for s in saved.split("\n") if s.strip()]
-        candidates.extend(saved)
+        for s in saved:
+            s = os.path.abspath(s)
+            if os.path.isdir(s) and s not in candidates:
+                candidates.append(s)
+
+        # Build options: each candidate + first-level subdirs
         seen = set()  # type: Set[str]
+        result = []
         for c in candidates:
             c = os.path.abspath(c)
-            if c in seen or not os.path.isdir(c):
+            if c in seen:
                 continue
             seen.add(c)
-            roots.append({"title": c, "value": c})
-            # Add first-level subdirs
+            result.append({"title": c, "value": c})
             try:
-                for name in sorted(os.listdir(c)):
+                for name in sorted(os.listdir(c))[:50]:
                     if name.startswith("."):
                         continue
                     full = os.path.join(c, name)
                     if os.path.isdir(full) and full not in seen:
                         seen.add(full)
-                        roots.append({"title": "  " + full, "value": full})
-            except PermissionError:
+                        result.append({"title": "  " + full, "value": full})
+            except (PermissionError, OSError):
                 pass
-        return roots[:500]
+        return result[:500]
 
     @staticmethod
     def get_command():

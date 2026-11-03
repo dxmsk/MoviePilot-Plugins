@@ -49,7 +49,7 @@
     "name": "手动秒传115",
     "description": "选择本地文件一键SHA1秒传到115网盘，无自动扫描、无调度，手动操作即时完成。",
     "labels": "网盘,工具",
-    "version": "1.7.0",
+    "version": "1.7.1",
     "icon": "https://raw.githubusercontent.com/jxxghp/MoviePilot-Plugins/main/icons/upload.png",
     "author": "Minis",
     "level": 1,
@@ -65,7 +65,8 @@
       "v1.5.0": "设置页改为下拉选择：本地路径用VSelect多选（自动列出MP挂载目录及子目录），115目标用VCombobox（可选可输入）；移除废弃文件浏览器。",
       "v1.6.0": "115目标目录下拉选项改为读取网盘真实目录（根目录+一层子目录）；未配置Cookie时提示先保存；读取失败时显示原因并保留手动输入。",
       "v1.6.1": "修复p115_web.py docstring语法错误导致插件无法加载。",
-      "v1.7.0": "get_form改用V2原始dict格式，确保VSelect items和VCombobox items正确传给Vuetify；本地路径用DirectoryHelper读取MP实际配置，115目录用Cookie调API读取网盘真实目录。"
+      "v1.7.0": "get_form改用V2原始dict格式，确保VSelect items和VCombobox items正确传给Vuetify；本地路径用DirectoryHelper读取MP实际配置，115目录用Cookie调API读取网盘真实目录。",
+      "v1.7.1": "本地路径发现改用DirectoryHelper读取MP实际配置的下载/媒体库目录，加/proc/mounts扫描docker绑定挂载，保留常用路径兜底。"
     }
   }
 }
