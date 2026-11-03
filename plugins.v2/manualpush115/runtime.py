@@ -69,13 +69,12 @@ class RuntimeMixin:
             "cookie": "",
             "user_agent": "",
             "remote_dir": "/",
+            "local_paths": [],
             "extensions": "",
-        }  # type: Dict[str, str]
+        }  # type: Dict[str, Any]
         self._history = []  # type: List[Dict[str, Any]]
         self._running = False
         self._progress = ""
-        self._browse_path = "/"
-        self._selected = {}  # type: Dict[str, Dict[str, Any]]
         self._mp115_initialized = True
 
     def init_plugin(self, config: dict = None) -> None:
@@ -85,6 +84,7 @@ class RuntimeMixin:
             "cookie": str(config.get("cookie") or "").strip(),
             "user_agent": str(config.get("user_agent") or "").strip(),
             "remote_dir": str(config.get("remote_dir") or "/").strip() or "/",
+            "local_paths": config.get("local_paths") or [],
             "extensions": str(config.get("extensions") or "").strip(),
         }
         try:
@@ -104,13 +104,7 @@ class RuntimeMixin:
             {"path": "/status", "endpoint": self.api_status, "methods": ["GET"],
              "auth": "bear", "summary": "状态与历史"},
             {"path": "/push", "endpoint": self.api_push, "methods": ["POST"],
-             "auth": "bear", "summary": "秒传选中文件"},
-            {"path": "/navigate", "endpoint": self.api_navigate, "methods": ["POST"],
-             "auth": "bear", "summary": "浏览目录"},
-            {"path": "/select", "endpoint": self.api_select, "methods": ["POST"],
-             "auth": "bear", "summary": "选择/取消文件"},
-            {"path": "/clear", "endpoint": self.api_clear, "methods": ["POST"],
-             "auth": "bear", "summary": "清空选择"},
+             "auth": "bear", "summary": "秒传设置中选好的文件"},
             {"path": "/test", "endpoint": self.api_test, "methods": ["POST"],
              "auth": "bear", "summary": "测试115凭据"},
             {"path": "/browse", "endpoint": self.api_browse, "methods": ["GET"],
@@ -128,66 +122,29 @@ class RuntimeMixin:
             "running": self._running,
             "progress": self._progress,
             "history": list(reversed(self._history[-100:])),
-            "selected_count": len(self._selected),
-            "browse_path": self._browse_path,
+            "local_paths": self._config.get("local_paths") or [],
             "version": getattr(self, "plugin_version", ""),
         }
 
-    def api_navigate(self, path: str = "/") -> dict:
-        self._ensure_init()
-        path = os.path.abspath(path) if path and path != "/" else "/"
-        if path != "/" and not os.path.isdir(path):
-            return {"success": False, "message": "目录不存在：{}".format(path)}
-        self._browse_path = path
-        return {"success": True}
-
-    def api_select(self, path: str = "", action: str = "toggle") -> dict:
-        self._ensure_init()
-        if action == "deselect_all":
-            self._selected.clear()
-            return {"success": True, "selected_count": 0}
-        if action == "select_all_files":
-            for e in self._list_dir(self._browse_path):
-                self._selected[e["path"]] = e
-            return {"success": True, "selected_count": len(self._selected)}
-        path = os.path.abspath(path) if path else ""
-        if not path or not os.path.exists(path):
-            return {"success": False, "message": "路径无效"}
-        if action == "deselect" or (action == "toggle" and path in self._selected):
-            self._selected.pop(path, None)
-        else:
-            entry = {"path": path, "name": os.path.basename(path),
-                     "is_dir": os.path.isdir(path), "size": 0}
-            if os.path.isfile(path):
-                try:
-                    entry["size"] = os.path.getsize(path)
-                except OSError:
-                    pass
-            self._selected[path] = entry
-        return {"success": True, "selected_count": len(self._selected)}
-
-    def api_clear(self) -> dict:
-        self._ensure_init()
-        self._selected.clear()
-        return {"success": True, "selected_count": 0}
-
     def api_push(self, remote_dir: str = None) -> dict:
         self._ensure_init()
-        if not self._selected:
-            return {"success": False, "message": "未选择文件，请先在文件浏览器中勾选"}
+        # Read paths from saved config (VSelect multiple in settings)
+        paths = self._config.get("local_paths") or []
+        if isinstance(paths, str):
+            paths = [p.strip() for p in paths.replace(",", "\n").split("\n") if p.strip()]
+        if not paths:
+            return {"success": False, "message": "未选择本地路径，请在设置中选择文件或文件夹后保存"}
         if not self._config.get("cookie"):
             return {"success": False, "message": "未配置 115 Cookie，请在设置中填写"}
         if self._running:
             return {"success": False, "message": "正在秒传中，请等待完成"}
         remote = (remote_dir or self._config.get("remote_dir") or "/").strip() or "/"
-        paths = list(self._selected.keys())
         files = self._collect_files(paths)
         done = {r["path"] for r in self._history if r.get("status") == "success"}
         fresh = [f for f in files if f not in done]
         skipped = len(files) - len(fresh)
         if not fresh:
             return {"success": True, "message": "选中的 {} 个文件均已秒传成功".format(len(files))}
-        self._selected.clear()
         threading.Thread(target=self._push_files, args=(fresh, remote), daemon=True).start()
         msg = "已开始秒传 {} 个文件到 {}".format(len(fresh), remote)
         if skipped:
@@ -372,6 +329,56 @@ class RuntimeMixin:
         if not raw.strip():
             return DEFAULT_EXTS
         return {e.strip().lower().lstrip(".") for e in raw.replace(",", " ").split() if e.strip()}
+
+    def _scan_local_options(self):
+        # type: () -> List[Dict[str, str]]
+        """Discover local mount points and their first-level subdirectories for VSelect."""
+        roots = []
+        # Common MP docker mount points
+        candidates = ["/media", "/mnt", "/downloads", "/data", "/volume1",
+                      "/movie", "/tv", "/music", "/video", "/nas",
+                      "/opt", "/config"]
+        # Also read from MP settings if available
+        try:
+            try:
+                from app.core.config import settings as mp_settings
+            except ImportError:
+                from app.sdk.config import settings as mp_settings
+            for attr in ("LIBRARY_PATH", "DOWNLOAD_PATH", "MEDIA_PATH",
+                         "LIBRARY_CATEGORY_PATH", "TRANSFER_PATH"):
+                val = getattr(mp_settings, attr, None)
+                if val and isinstance(val, str) and os.path.isdir(val):
+                    candidates.append(val)
+                elif val and isinstance(val, (list, tuple)):
+                    for v in val:
+                        if isinstance(v, str) and os.path.isdir(v):
+                            candidates.append(v)
+        except Exception:
+            pass
+        # Also include currently saved paths
+        saved = self._config.get("local_paths") or []
+        if isinstance(saved, str):
+            saved = [s.strip() for s in saved.split("\n") if s.strip()]
+        candidates.extend(saved)
+        seen = set()  # type: Set[str]
+        for c in candidates:
+            c = os.path.abspath(c)
+            if c in seen or not os.path.isdir(c):
+                continue
+            seen.add(c)
+            roots.append({"title": c, "value": c})
+            # Add first-level subdirs
+            try:
+                for name in sorted(os.listdir(c)):
+                    if name.startswith("."):
+                        continue
+                    full = os.path.join(c, name)
+                    if os.path.isdir(full) and full not in seen:
+                        seen.add(full)
+                        roots.append({"title": "  " + full, "value": full})
+            except PermissionError:
+                pass
+        return roots[:500]
 
     @staticmethod
     def get_command():
