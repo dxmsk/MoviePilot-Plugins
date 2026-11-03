@@ -101,7 +101,7 @@ class UiMixin:
     def get_page(self):
         from .browser_html import BROWSER_HTML
         html = BROWSER_HTML.replace("__PREFIX__", type(self).__name__)
-        return [node("VHtml", html=html)]
+        return [{"component": "div", "html": html}]
 
     def get_form(self):
         def field(key, label, component="VTextField", md=6, **props):

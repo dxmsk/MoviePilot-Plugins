@@ -129,34 +129,65 @@ class RuntimeMixin:
         if not paths:
             return {"success": False, "message": "未选择文件"}
         if not self._config.get("cookie"):
-            return {"success": False, "message": "未配置 115 Cookie"}
+            return {"success": False, "message": "未配置 115 Cookie，请在设置中填写"}
         if self._running:
-            return {"success": False, "message": "正在秒传中，请等待完成"}
+            return {"success": False, "message": "正在秒传中，请等待完成后再试"}
         remote = (remote_dir or self._config["remote_dir"]).strip() or "/"
-        # Collect files
-        files = []
-        exts = self._allowed_extensions()
-        for p in paths:
-            p = os.path.abspath(p)
-            if os.path.isfile(p):
-                if not exts or any(p.lower().endswith(f".{e}") for e in exts):
-                    files.append(p)
-            elif os.path.isdir(p):
-                for root, _dirs, names in os.walk(p):
-                    for name in sorted(names):
-                        full = os.path.join(root, name)
-                        if name.startswith("."):
-                            continue
-                        if exts and not any(name.lower().endswith(f".{e}") for e in exts):
-                            continue
-                        files.append(full)
+        # Collect and deduplicate files
+        files = self._collect_files(paths)
         if not files:
             return {"success": False, "message": "选中路径中没有符合条件的文件"}
-        # Run in background
-        threading.Thread(target=self._push_files, args=(list(files), remote),
+        # Skip files that already succeeded in history
+        done = {r["path"] for r in self._history if r.get("status") == "success"}
+        skippable = [f for f in files if f in done]
+        fresh = [f for f in files if f not in done]
+        msg_parts = [f"已开始秒传 {len(fresh)} 个文件到 {remote}"]
+        if skippable:
+            msg_parts.append(f"（跳过 {len(skippable)} 个已成功的文件）")
+        if not fresh:
+            return {"success": True, "message": f"选中的 {len(files)} 个文件均已秒传成功，无需重复操作"}
+        threading.Thread(target=self._push_files, args=(fresh, remote),
                          daemon=True).start()
-        return {"success": True,
-                "message": f"已开始秒传 {len(files)} 个文件到 {remote}"}
+        return {"success": True, "message": "".join(msg_parts)}
+
+    def _collect_files(self, paths: list[str]) -> list[str]:
+        """Deduplicate: if a directory is selected, don't also include its children individually."""
+        exts = self._allowed_extensions()
+        dirs = set()
+        explicit_files = []
+        for p in paths:
+            p = os.path.abspath(p)
+            if os.path.isdir(p):
+                dirs.add(p)
+            elif os.path.isfile(p):
+                explicit_files.append(p)
+        # Remove files whose parent dir is also selected (dir walk will cover them)
+        filtered_files = []
+        for f in explicit_files:
+            if not any(f.startswith(d + os.sep) for d in dirs):
+                if not exts or any(f.lower().endswith(f".{e}") for e in exts):
+                    filtered_files.append(f)
+        # Walk selected directories
+        for d in sorted(dirs):
+            # Skip subdirs of another selected dir
+            if any(d.startswith(parent + os.sep) for parent in dirs if parent != d):
+                continue
+            for root, _subdirs, names in os.walk(d):
+                for name in sorted(names):
+                    if name.startswith("."):
+                        continue
+                    full = os.path.join(root, name)
+                    if exts and not any(name.lower().endswith(f".{e}") for e in exts):
+                        continue
+                    filtered_files.append(full)
+        # Final dedup preserving order
+        seen = set()
+        result = []
+        for f in filtered_files:
+            if f not in seen:
+                seen.add(f)
+                result.append(f)
+        return result
 
     def api_test(self) -> dict:
         if not self._config.get("cookie"):
@@ -175,45 +206,84 @@ class RuntimeMixin:
             if self._running:
                 return
             self._running = True
+        consecutive_errors = 0
+        MAX_CONSECUTIVE = 10
         try:
-            client = P115WebClient(cookie=self._config["cookie"],
-                                   user_agent=self._config.get("user_agent") or "")
-            dir_id = client.get_dir_id_by_path(remote_dir)
+            client = self._get_client()
+            dir_id = self._get_dir_id(client, remote_dir)
             total = len(files)
-            success = 0
-            failed = 0
+            success = failed = skipped = 0
             for i, filepath in enumerate(files, 1):
                 name = os.path.basename(filepath)
-                self._progress = f"{i}/{total} {name}"
-                record = {"name": name, "path": filepath, "remote_dir": remote_dir,
-                          "time": stamp()}
                 try:
                     size = os.path.getsize(filepath)
-                    record["size"] = size
-                    result = client.push_file(Path(filepath), remote_dir_id=dir_id)
-                    if result.get("ok") or result.get("status") == 2:
-                        record["status"] = "success"
-                        record["message"] = "SHA1秒传成功" + (
-                            "（已存在）" if result.get("reuse") else "")
-                        success += 1
-                    else:
-                        record["status"] = "failed"
-                        record["message"] = result.get("message") or str(result)
+                except OSError:
+                    size = 0
+                self._progress = f"{i}/{total} {name} ({human_size(size)}) · 成功{success} 失败{failed}"
+                record = {"name": name, "path": filepath, "remote_dir": remote_dir,
+                          "size": size, "time": stamp()}
+                try:
+                    if not os.path.isfile(filepath):
+                        record.update(status="failed", message="文件不存在或已被移动")
                         failed += 1
-                except Exception as exc:
-                    record["status"] = "failed"
-                    record["message"] = str(exc)
+                    else:
+                        result = client.push_file(Path(filepath), remote_dir_id=dir_id)
+                        if result.get("ok") or result.get("status") == 2:
+                            record["status"] = "success"
+                            record["message"] = "SHA1秒传成功" + ("（已存在）" if result.get("reuse") else "")
+                            success += 1
+                            consecutive_errors = 0
+                        else:
+                            record["status"] = "failed"
+                            record["message"] = result.get("message") or str(result)
+                            failed += 1
+                            consecutive_errors += 1
+                except P115WebError as exc:
+                    record.update(status="failed", message=str(exc))
                     failed += 1
+                    consecutive_errors += 1
                     logger.warning(f"{LOG}秒传失败 {name}: {exc}")
+                except Exception as exc:
+                    record.update(status="failed", message=str(exc))
+                    failed += 1
+                    consecutive_errors += 1
+                    logger.warning(f"{LOG}秒传异常 {name}: {exc}")
                 self._history.append(record)
+                # Save after each file so progress survives a crash
+                if i % 5 == 0 or i == total or record["status"] == "failed":
+                    self._persist()
+                # Abort if too many consecutive failures (likely auth/network issue)
+                if consecutive_errors >= MAX_CONSECUTIVE:
+                    self._progress = f"中止：连续 {MAX_CONSECUTIVE} 个文件失败，请检查网络或 Cookie · 成功{success} 失败{failed}"
+                    logger.error(f"{LOG}连续失败 {MAX_CONSECUTIVE} 次，中止秒传")
+                    self._persist()
+                    return
             self._progress = f"完成：{success} 成功，{failed} 失败（共 {total}）"
             logger.info(f"{LOG}{self._progress}")
             self._persist()
         except Exception as exc:
             self._progress = f"秒传异常：{exc}"
             logger.error(f"{LOG}{traceback.format_exc()}")
+            self._persist()
         finally:
             self._running = False
+
+    def _get_client(self):
+        """Reuse client within a session; recreate only if cookie changes."""
+        key = (self._config["cookie"], self._config.get("user_agent") or "")
+        if not hasattr(self, "_client_cache") or self._client_cache[0] != key:
+            self._client_cache = (key, P115WebClient(
+                cookie=self._config["cookie"],
+                user_agent=self._config.get("user_agent") or ""))
+        return self._client_cache[1]
+
+    def _get_dir_id(self, client, remote_dir: str) -> int:
+        """Cache dir_id per remote_dir to avoid repeated API calls."""
+        if not hasattr(self, "_dir_cache"):
+            self._dir_cache = {}
+        if remote_dir not in self._dir_cache:
+            self._dir_cache[remote_dir] = client.get_dir_id_by_path(remote_dir)
+        return self._dir_cache[remote_dir]
 
     def _persist(self):
         try:
