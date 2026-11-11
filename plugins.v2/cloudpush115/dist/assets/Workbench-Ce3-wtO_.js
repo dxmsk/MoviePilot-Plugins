@@ -269,7 +269,7 @@ return (_ctx, _cache) => {
         }),
         _cache[17] || (_cache[17] = _createElementVNode("div", null, [
           _createElementVNode("h1", null, "115 网盘秒传"),
-          _createElementVNode("p", null, "SHA1 秒传 · 只读原文件 · qB 下载完成即推送")
+          _createElementVNode("p", null, "SHA1 秒传 · 默认保留原文件 · qB 下载完成即推送")
         ], -1))
       ]),
       _createElementVNode("div", _hoisted_3, [
@@ -1041,6 +1041,6 @@ return (_ctx, _cache) => {
 }
 
 };
-const Workbench = /*#__PURE__*/_export_sfc(_sfc_main, [['__scopeId',"data-v-5595d9cb"]]);
+const Workbench = /*#__PURE__*/_export_sfc(_sfc_main, [['__scopeId',"data-v-2446a47d"]]);
 
 export { Workbench as W };

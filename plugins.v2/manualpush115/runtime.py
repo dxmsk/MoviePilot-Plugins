@@ -111,7 +111,12 @@ class RuntimeMixin(TransferMixin):
             return reply({"plugin_id": type(self).__name__, "version": self.plugin_version,
                           "has_cookie": bool(self._config.get("cookie")),
                           "remote_dir": self._config["remote_dir"],
-                          "local_paths": list(self._config["local_paths"]), "running": self._running,
+                          "local_paths": list(self._config["local_paths"]),
+                          "failure_move_enabled": bool(self._config.get("failure_move_enabled")),
+                          "failure_move_dir": self._config.get("failure_move_dir", ""),
+                          "delete_on_success": bool(self._config.get("delete_on_success")),
+                          "failure_move_preserve_structure": bool(self._config.get("failure_move_preserve_structure", True)),
+                          "running": self._running,
                           "job": deepcopy(self._job), "history": deepcopy(self._history[-100:][::-1]),
                           "persist_error": self._persist_error})
 
@@ -285,9 +290,11 @@ class RuntimeMixin(TransferMixin):
             with self._save_guard:
                 with self._guard:
                     data = {"history": deepcopy(self._history[-500:]), "job": deepcopy(self._job)}
-                self.save_data(self.STATE_KEY, data)
+                if self.save_data(self.STATE_KEY, data) is False:
+                    raise RuntimeError('宿主返回保存失败')
                 with self._guard:
                     self._persist_error = ""
+                return True
         except Exception as exc:
             with self._guard:
                 self._persist_error = "保存记录失败：" + self._error(exc)

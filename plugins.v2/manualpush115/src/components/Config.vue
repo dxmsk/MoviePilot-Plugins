@@ -38,6 +38,11 @@ onBeforeUnmount(() => { form.dispose(); if (typeof window !== 'undefined') windo
           <div><label for="m115-default-remote" class="m-label">默认115目标目录</label><input id="m115-default-remote" v-model="form.draft.remote_dir" class="m-input" placeholder="/"><p class="m-muted">可保留或编辑原路径；首页可逐层选择真实115目录，无需手填。</p></div>
           <div><label for="m115-default-paths" class="m-label">默认本地路径（每行一项）</label><textarea id="m115-default-paths" v-model="pathsText" class="m-input" rows="3" spellcheck="false" /><p class="m-muted">兼容保留已有配置；推荐在首页选择文件／文件夹后点击“保存为默认”。</p></div>
         </div>
+        <div class="m-card m-stack">
+          <div><label class="m-check"><input v-model="form.draft.failure_move_enabled" type="checkbox">本次文件失败后移动至指定目录</label><p class="m-muted">默认关闭。包括网络或登录错误（远端结果可能未知）；文件签名变化或归档异常时保留源文件。</p></div>
+          <div v-if="form.draft.failure_move_enabled"><label for="m115-failure-dir" class="m-label">失败文件目录</label><input id="m115-failure-dir" v-model="form.draft.failure_move_dir" class="m-input" placeholder="/media/failed"><p class="m-muted">填写绝对路径；可使用相邻目录。开启后本次收集会排除失败目录内文件。</p><label class="m-check"><input v-model="form.draft.failure_move_preserve_structure" type="checkbox">保留原目录结构</label></div>
+          <div><label class="m-check"><input v-model="form.draft.delete_on_success" type="checkbox">秒传明确成功后删除原文件</label><p class="m-muted">默认关闭。删除前会重新校验文件签名，文件变化时保留原文件。</p></div>
+        </div>
       </fieldset>
       <div class="m-row"><VBtn color="primary" :loading="form.saving" :disabled="!form.canSave" @click="form.save">{{ isEmbedded ? '保存配置' : '保存至宿主' }}</VBtn><VBtn variant="tonal" :loading="form.testing" :disabled="!form.loaded || form.saving" @click="form.testSaved">测试已保存配置</VBtn><VBtn variant="text" :disabled="form.saving || form.testing" @click="requestLeave('switch')">返回秒传首页</VBtn><span class="m-muted">{{ form.dirty ? '有未保存更改' : '无未保存更改' }}</span></div>
       <p class="m-muted">连接测试只使用服务端已保存的 Cookie，不会提交当前未保存的输入。保存配置不会启动任务或创建调度。</p>

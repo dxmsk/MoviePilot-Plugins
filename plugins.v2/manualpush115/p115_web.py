@@ -474,7 +474,7 @@ class P115WebClient:
 
     # ---------------- 秒传 ---------------- #
     @staticmethod
-    def _sha1_file(path: Path, chunk: int = 1 << 20) -> str:
+    def _sha1_file(path: Path, chunk: int = 4 << 20) -> str:
         return sha1_file(path, chunk_size=chunk)
 
     @staticmethod

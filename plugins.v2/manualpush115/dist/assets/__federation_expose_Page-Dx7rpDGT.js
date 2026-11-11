@@ -1,6 +1,6 @@
 import { importShared } from './__federation_fn_import-JrT3xvdd.js';
-import { W as Workbench } from './Workbench-DNrZd_BY.js';
-import { h as hostProps } from './__federation_expose_Config--inL-uro.js';
+import { W as Workbench } from './Workbench-BrX1lFzk.js';
+import { h as hostProps } from './__federation_expose_Config-CrfibsL-.js';
 
 const {openBlock:_openBlock,createBlock:_createBlock} = await importShared('vue');
 

@@ -32,13 +32,18 @@ function createGeneration() {
 }
 const clone = value => JSON.parse(JSON.stringify(value));
 const errorText = error => error?.message || '请求失败，请重试';
-const settingsKeys = ['cookie', 'user_agent', 'extensions', 'remote_dir', 'local_paths'];
+const settingsKeys = ['cookie', 'user_agent', 'extensions', 'remote_dir', 'local_paths', 'failure_move_enabled', 'failure_move_dir', 'delete_on_success', 'failure_move_preserve_structure'];
 function completeSettings(value) {
-  return !!value && settingsKeys.every(key => Object.hasOwn(value, key)) && Array.isArray(value.local_paths) && settingsKeys.slice(0, 4).every(key => typeof value[key] === 'string')
+  return !!value && settingsKeys.slice(0, 5).every(key => Object.hasOwn(value, key)) && Array.isArray(value.local_paths) && settingsKeys.slice(0, 4).every(key => typeof value[key] === 'string')
 }
 function normalizeSettings(value) {
   if (!completeSettings(value)) throw new Error('配置响应不完整，已禁止保存，避免覆盖原配置')
-  return Object.fromEntries(settingsKeys.map(key => [key, clone(value[key])]))
+  const merged = { failure_move_enabled: false, failure_move_dir: '', delete_on_success: false, failure_move_preserve_structure: true, ...value };
+  for (const key of ['failure_move_enabled', 'delete_on_success', 'failure_move_preserve_structure']) {
+    if (typeof merged[key] !== 'boolean') throw new Error('文件动作开关格式错误')
+  }
+  if (typeof merged.failure_move_dir !== 'string') throw new Error('失败目录格式错误')
+  return Object.fromEntries(settingsKeys.map(key => [key, clone(merged[key])]))
 }
 function sizeText(bytes) {
   if (!Number.isFinite(Number(bytes))) return '—'
@@ -83,7 +88,7 @@ function useClient(props) {
 
 const {computed: computed$1,ref: ref$1} = await importShared('vue');
 function useSettings(client, initialConfig, embedded, emit) {
-  const draft = ref$1({ cookie: '', user_agent: '', extensions: '', remote_dir: '/', local_paths: [] });
+  const draft = ref$1({ cookie: '', user_agent: '', extensions: '', remote_dir: '/', local_paths: [], failure_move_enabled: false, failure_move_dir: '', delete_on_success: false, failure_move_preserve_structure: true });
   const saved = ref$1(null), loaded = ref$1(false), loading = ref$1(false), saving = ref$1(false), testing = ref$1(false);
   const error = ref$1(''), notice = ref$1(''), revision = ref$1(null);
   const gate = createGeneration();
@@ -153,10 +158,15 @@ const _hoisted_5 = { class: "m-card m-stack" };
 const _hoisted_6 = ["type"];
 const _hoisted_7 = { class: "m-check" };
 const _hoisted_8 = { class: "m-card m-stack" };
-const _hoisted_9 = { class: "m-row" };
-const _hoisted_10 = { class: "m-muted" };
-const _hoisted_11 = { class: "m115 m-dialog" };
-const _hoisted_12 = { class: "m-row m-spacer" };
+const _hoisted_9 = { class: "m-card m-stack" };
+const _hoisted_10 = { class: "m-check" };
+const _hoisted_11 = { key: 0 };
+const _hoisted_12 = { class: "m-check" };
+const _hoisted_13 = { class: "m-check" };
+const _hoisted_14 = { class: "m-row" };
+const _hoisted_15 = { class: "m-muted" };
+const _hoisted_16 = { class: "m115 m-dialog" };
+const _hoisted_17 = { class: "m-row m-spacer" };
 
 const {computed,onBeforeUnmount,onMounted,reactive,ref,watch} = await importShared('vue');
 
@@ -190,7 +200,7 @@ return (_ctx, _cache) => {
 
   return (_openBlock(), _createElementBlock("section", _hoisted_1, [
     _createElementVNode("header", _hoisted_2, [
-      _cache[10] || (_cache[10] = _createElementVNode("div", null, [
+      _cache[14] || (_cache[14] = _createElementVNode("div", null, [
         _createElementVNode("div", { class: "m-kicker" }, "MANUAL PUSH · SETTINGS"),
         _createElementVNode("h1", null, "连接与默认配置"),
         _createElementVNode("p", { class: "m-muted" }, "完整保留原配置。选择本地文件与秒传操作均在首页完成。")
@@ -200,7 +210,7 @@ return (_ctx, _cache) => {
         disabled: form.saving || form.testing,
         onClick: _cache[0] || (_cache[0] = $event => (requestLeave('close')))
       }, {
-        default: _withCtx(() => [...(_cache[9] || (_cache[9] = [
+        default: _withCtx(() => [...(_cache[13] || (_cache[13] = [
           _createTextVNode("关闭", -1)
         ]))]),
         _: 1
@@ -223,7 +233,7 @@ return (_ctx, _cache) => {
                     disabled: form.loading,
                     onClick: form.load
                   }, {
-                    default: _withCtx(() => [...(_cache[11] || (_cache[11] = [
+                    default: _withCtx(() => [...(_cache[15] || (_cache[15] = [
                       _createTextVNode("重新加载配置", -1)
                     ]))]),
                     _: 1
@@ -259,7 +269,7 @@ return (_ctx, _cache) => {
             type: "warning",
             variant: "tonal"
           }, {
-            default: _withCtx(() => [...(_cache[12] || (_cache[12] = [
+            default: _withCtx(() => [...(_cache[16] || (_cache[16] = [
               _createTextVNode("配置尚未成功载入，禁止保存，避免用空值覆盖 Cookie 等原配置。", -1)
             ]))]),
             _: 1
@@ -271,7 +281,7 @@ return (_ctx, _cache) => {
       }, [
         _createElementVNode("div", _hoisted_5, [
           _createElementVNode("div", null, [
-            _cache[14] || (_cache[14] = _createElementVNode("label", {
+            _cache[18] || (_cache[18] = _createElementVNode("label", {
               for: "m115-cookie",
               class: "m-label"
             }, "115 Cookie", -1)),
@@ -293,12 +303,12 @@ return (_ctx, _cache) => {
               }, null, 512), [
                 [_vModelCheckbox, showCookie.value]
               ]),
-              _cache[13] || (_cache[13] = _createTextVNode("显示 Cookie（请勿截图分享）", -1))
+              _cache[17] || (_cache[17] = _createTextVNode("显示 Cookie（请勿截图分享）", -1))
             ]),
-            _cache[15] || (_cache[15] = _createElementVNode("p", { class: "m-muted" }, "仅配置接口加载 Cookie，首页状态与历史不显示密钥。留空保存将清除 Cookie。", -1))
+            _cache[19] || (_cache[19] = _createElementVNode("p", { class: "m-muted" }, "仅配置接口加载 Cookie，首页状态与历史不显示密钥。留空保存将清除 Cookie。", -1))
           ]),
           _createElementVNode("div", null, [
-            _cache[16] || (_cache[16] = _createElementVNode("label", {
+            _cache[20] || (_cache[20] = _createElementVNode("label", {
               for: "m115-ua",
               class: "m-label"
             }, "User-Agent", -1)),
@@ -314,7 +324,7 @@ return (_ctx, _cache) => {
             ])
           ]),
           _createElementVNode("div", null, [
-            _cache[17] || (_cache[17] = _createElementVNode("label", {
+            _cache[21] || (_cache[21] = _createElementVNode("label", {
               for: "m115-ext",
               class: "m-label"
             }, "文件扩展名过滤", -1)),
@@ -326,12 +336,12 @@ return (_ctx, _cache) => {
             }, null, 512), [
               [_vModelText, form.draft.extensions]
             ]),
-            _cache[18] || (_cache[18] = _createElementVNode("p", { class: "m-muted" }, "留空使用默认媒体扩展列表；填 * 包含所有文件。保留原过滤规则；目录由后台收集，不在首页递归统计。", -1))
+            _cache[22] || (_cache[22] = _createElementVNode("p", { class: "m-muted" }, "留空使用默认媒体扩展列表；填 * 包含所有文件。保留原过滤规则；目录由后台收集，不在首页递归统计。", -1))
           ])
         ]),
         _createElementVNode("div", _hoisted_8, [
           _createElementVNode("div", null, [
-            _cache[19] || (_cache[19] = _createElementVNode("label", {
+            _cache[23] || (_cache[23] = _createElementVNode("label", {
               for: "m115-default-remote",
               class: "m-label"
             }, "默认115目标目录", -1)),
@@ -343,10 +353,10 @@ return (_ctx, _cache) => {
             }, null, 512), [
               [_vModelText, form.draft.remote_dir]
             ]),
-            _cache[20] || (_cache[20] = _createElementVNode("p", { class: "m-muted" }, "可保留或编辑原路径；首页可逐层选择真实115目录，无需手填。", -1))
+            _cache[24] || (_cache[24] = _createElementVNode("p", { class: "m-muted" }, "可保留或编辑原路径；首页可逐层选择真实115目录，无需手填。", -1))
           ]),
           _createElementVNode("div", null, [
-            _cache[21] || (_cache[21] = _createElementVNode("label", {
+            _cache[25] || (_cache[25] = _createElementVNode("label", {
               for: "m115-default-paths",
               class: "m-label"
             }, "默认本地路径（每行一项）", -1)),
@@ -359,11 +369,63 @@ return (_ctx, _cache) => {
             }, null, 512), [
               [_vModelText, pathsText.value]
             ]),
-            _cache[22] || (_cache[22] = _createElementVNode("p", { class: "m-muted" }, "兼容保留已有配置；推荐在首页选择文件／文件夹后点击“保存为默认”。", -1))
+            _cache[26] || (_cache[26] = _createElementVNode("p", { class: "m-muted" }, "兼容保留已有配置；推荐在首页选择文件／文件夹后点击“保存为默认”。", -1))
+          ])
+        ]),
+        _createElementVNode("div", _hoisted_9, [
+          _createElementVNode("div", null, [
+            _createElementVNode("label", _hoisted_10, [
+              _withDirectives(_createElementVNode("input", {
+                "onUpdate:modelValue": _cache[7] || (_cache[7] = $event => ((form.draft.failure_move_enabled) = $event)),
+                type: "checkbox"
+              }, null, 512), [
+                [_vModelCheckbox, form.draft.failure_move_enabled]
+              ]),
+              _cache[27] || (_cache[27] = _createTextVNode("本次文件失败后移动至指定目录", -1))
+            ]),
+            _cache[28] || (_cache[28] = _createElementVNode("p", { class: "m-muted" }, "默认关闭。包括网络或登录错误（远端结果可能未知）；文件签名变化或归档异常时保留源文件。", -1))
+          ]),
+          (form.draft.failure_move_enabled)
+            ? (_openBlock(), _createElementBlock("div", _hoisted_11, [
+                _cache[30] || (_cache[30] = _createElementVNode("label", {
+                  for: "m115-failure-dir",
+                  class: "m-label"
+                }, "失败文件目录", -1)),
+                _withDirectives(_createElementVNode("input", {
+                  id: "m115-failure-dir",
+                  "onUpdate:modelValue": _cache[8] || (_cache[8] = $event => ((form.draft.failure_move_dir) = $event)),
+                  class: "m-input",
+                  placeholder: "/media/failed"
+                }, null, 512), [
+                  [_vModelText, form.draft.failure_move_dir]
+                ]),
+                _cache[31] || (_cache[31] = _createElementVNode("p", { class: "m-muted" }, "填写绝对路径；可使用相邻目录。开启后本次收集会排除失败目录内文件。", -1)),
+                _createElementVNode("label", _hoisted_12, [
+                  _withDirectives(_createElementVNode("input", {
+                    "onUpdate:modelValue": _cache[9] || (_cache[9] = $event => ((form.draft.failure_move_preserve_structure) = $event)),
+                    type: "checkbox"
+                  }, null, 512), [
+                    [_vModelCheckbox, form.draft.failure_move_preserve_structure]
+                  ]),
+                  _cache[29] || (_cache[29] = _createTextVNode("保留原目录结构", -1))
+                ])
+              ]))
+            : _createCommentVNode("", true),
+          _createElementVNode("div", null, [
+            _createElementVNode("label", _hoisted_13, [
+              _withDirectives(_createElementVNode("input", {
+                "onUpdate:modelValue": _cache[10] || (_cache[10] = $event => ((form.draft.delete_on_success) = $event)),
+                type: "checkbox"
+              }, null, 512), [
+                [_vModelCheckbox, form.draft.delete_on_success]
+              ]),
+              _cache[32] || (_cache[32] = _createTextVNode("秒传明确成功后删除原文件", -1))
+            ]),
+            _cache[33] || (_cache[33] = _createElementVNode("p", { class: "m-muted" }, "默认关闭。删除前会重新校验文件签名，文件变化时保留原文件。", -1))
           ])
         ])
       ], 8, _hoisted_4),
-      _createElementVNode("div", _hoisted_9, [
+      _createElementVNode("div", _hoisted_14, [
         _createVNode(_component_VBtn, {
           color: "primary",
           loading: form.saving,
@@ -381,7 +443,7 @@ return (_ctx, _cache) => {
           disabled: !form.loaded || form.saving,
           onClick: form.testSaved
         }, {
-          default: _withCtx(() => [...(_cache[23] || (_cache[23] = [
+          default: _withCtx(() => [...(_cache[34] || (_cache[34] = [
             _createTextVNode("测试已保存配置", -1)
           ]))]),
           _: 1
@@ -389,16 +451,16 @@ return (_ctx, _cache) => {
         _createVNode(_component_VBtn, {
           variant: "text",
           disabled: form.saving || form.testing,
-          onClick: _cache[7] || (_cache[7] = $event => (requestLeave('switch')))
+          onClick: _cache[11] || (_cache[11] = $event => (requestLeave('switch')))
         }, {
-          default: _withCtx(() => [...(_cache[24] || (_cache[24] = [
+          default: _withCtx(() => [...(_cache[35] || (_cache[35] = [
             _createTextVNode("返回秒传首页", -1)
           ]))]),
           _: 1
         }, 8, ["disabled"]),
-        _createElementVNode("span", _hoisted_10, _toDisplayString(form.dirty ? '有未保存更改' : '无未保存更改'), 1)
+        _createElementVNode("span", _hoisted_15, _toDisplayString(form.dirty ? '有未保存更改' : '无未保存更改'), 1)
       ]),
-      _cache[25] || (_cache[25] = _createElementVNode("p", { class: "m-muted" }, "连接测试只使用服务端已保存的 Cookie，不会提交当前未保存的输入。保存配置不会启动任务或创建调度。", -1))
+      _cache[36] || (_cache[36] = _createElementVNode("p", { class: "m-muted" }, "连接测试只使用服务端已保存的 Cookie，不会提交当前未保存的输入。保存配置不会启动任务或创建调度。", -1))
     ]),
     _createVNode(_component_VDialog, {
       "model-value": !!leaveKind.value,
@@ -406,15 +468,15 @@ return (_ctx, _cache) => {
       "max-width": "460"
     }, {
       default: _withCtx(() => [
-        _createElementVNode("section", _hoisted_11, [
-          _cache[28] || (_cache[28] = _createElementVNode("h2", null, "保留未保存的输入？", -1)),
-          _cache[29] || (_cache[29] = _createElementVNode("p", null, "离开会丢弃尚未保存的配置。", -1)),
-          _createElementVNode("div", _hoisted_12, [
+        _createElementVNode("section", _hoisted_16, [
+          _cache[39] || (_cache[39] = _createElementVNode("h2", null, "保留未保存的输入？", -1)),
+          _cache[40] || (_cache[40] = _createElementVNode("p", null, "离开会丢弃尚未保存的配置。", -1)),
+          _createElementVNode("div", _hoisted_17, [
             _createVNode(_component_VBtn, {
               color: "primary",
-              onClick: _cache[8] || (_cache[8] = $event => (leaveKind.value = ''))
+              onClick: _cache[12] || (_cache[12] = $event => (leaveKind.value = ''))
             }, {
-              default: _withCtx(() => [...(_cache[26] || (_cache[26] = [
+              default: _withCtx(() => [...(_cache[37] || (_cache[37] = [
                 _createTextVNode("继续编辑", -1)
               ]))]),
               _: 1
@@ -423,7 +485,7 @@ return (_ctx, _cache) => {
               variant: "text",
               onClick: confirmLeave
             }, {
-              default: _withCtx(() => [...(_cache[27] || (_cache[27] = [
+              default: _withCtx(() => [...(_cache[38] || (_cache[38] = [
                 _createTextVNode("丢弃并离开", -1)
               ]))]),
               _: 1
@@ -438,6 +500,6 @@ return (_ctx, _cache) => {
 }
 
 };
-const Config = /*#__PURE__*/_export_sfc(_sfc_main, [['__scopeId',"data-v-9215b58a"]]);
+const Config = /*#__PURE__*/_export_sfc(_sfc_main, [['__scopeId',"data-v-1454d3aa"]]);
 
 export { _export_sfc as _, clone as a, createGeneration as c, Config as default, errorText as e, hostProps as h, normalizeSettings as n, requestId as r, sizeText as s, useClient as u };

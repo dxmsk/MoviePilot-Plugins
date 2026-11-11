@@ -30,13 +30,18 @@ export function createGeneration() {
 }
 export const clone = value => JSON.parse(JSON.stringify(value))
 export const errorText = error => error?.message || '请求失败，请重试'
-export const settingsKeys = ['cookie', 'user_agent', 'extensions', 'remote_dir', 'local_paths']
+export const settingsKeys = ['cookie', 'user_agent', 'extensions', 'remote_dir', 'local_paths', 'failure_move_enabled', 'failure_move_dir', 'delete_on_success', 'failure_move_preserve_structure']
 export function completeSettings(value) {
-  return !!value && settingsKeys.every(key => Object.hasOwn(value, key)) && Array.isArray(value.local_paths) && settingsKeys.slice(0, 4).every(key => typeof value[key] === 'string')
+  return !!value && settingsKeys.slice(0, 5).every(key => Object.hasOwn(value, key)) && Array.isArray(value.local_paths) && settingsKeys.slice(0, 4).every(key => typeof value[key] === 'string')
 }
 export function normalizeSettings(value) {
   if (!completeSettings(value)) throw new Error('配置响应不完整，已禁止保存，避免覆盖原配置')
-  return Object.fromEntries(settingsKeys.map(key => [key, clone(value[key])]))
+  const merged = { failure_move_enabled: false, failure_move_dir: '', delete_on_success: false, failure_move_preserve_structure: true, ...value }
+  for (const key of ['failure_move_enabled', 'delete_on_success', 'failure_move_preserve_structure']) {
+    if (typeof merged[key] !== 'boolean') throw new Error('文件动作开关格式错误')
+  }
+  if (typeof merged.failure_move_dir !== 'string') throw new Error('失败目录格式错误')
+  return Object.fromEntries(settingsKeys.map(key => [key, clone(merged[key])]))
 }
 export function sizeText(bytes) {
   if (!Number.isFinite(Number(bytes))) return '—'

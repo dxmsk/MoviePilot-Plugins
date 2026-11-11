@@ -22,7 +22,7 @@ class CloudPush115(RuntimeMixin, UiMixin, _PluginBase):
     plugin_name = "115网盘秒传"
     plugin_desc = "本地文件SHA1秒传115；网页Cookie、手填目录、可见文件队列、失败重试和qB完成联动。"
     plugin_icon = "clouddisk.png"
-    plugin_version = "1.6.7"
+    plugin_version = "1.7.0"
     plugin_author = "Minis"
     author_url = "https://github.com/dxmsk/MoviePilot-Plugins"
     plugin_config_prefix = "cloudpush115_"

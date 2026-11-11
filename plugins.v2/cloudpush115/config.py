@@ -16,6 +16,8 @@ DEFAULTS = {
     "max_attempts": 0, "retry_notfound": True,
     "qb_enabled": False, "qb_host": "", "qb_username": "admin", "qb_password": "",
     "qb_done_tag": "已整理", "qb_interval": 5, "qb_settle": 0, "qb_path_mappings": "",
+    "failure_move_enabled": False, "failure_move_dir": "", "failure_move_on": "exhausted",
+    "failure_move_preserve_structure": True, "delete_on_success": False,
 }
 OBSOLETE = {"access_token", "login_mode", "local_browse_path", "remote_browse_cid",
             "remote_browse_path", "watch_paths_display", "remote_dir_display"}
@@ -61,6 +63,19 @@ def normalize_config(value: Any) -> dict:
     config["qb_done_tag"] = config["qb_done_tag"] or "已整理"
     config["watch_paths"] = "\n".join(split_paths(config.get("watch_paths")))
     config["remote_dir"] = remote_path(config.get("remote_dir"))
+    from .fileactions import validate_directory, contains
+    for key in ('failure_move_enabled', 'delete_on_success', 'failure_move_preserve_structure'):
+        config[key] = flag(config[key])
+    config['failure_move_dir'] = validate_directory(config['failure_move_dir'])
+    if config['failure_move_on'] not in {'each_failure', 'exhausted'}:
+        raise ValueError('失败移动策略必须为 each_failure 或 exhausted')
+    if config['failure_move_enabled']:
+        if not config['failure_move_dir']:
+            raise ValueError('启用失败移动时必须设置失败目录')
+        if any(contains(root, config['failure_move_dir']) for root in split_paths(config['watch_paths'])):
+            raise ValueError('失败目录不能位于监控目录内，避免循环扫描')
+        if config['failure_move_on'] == 'exhausted' and config['max_attempts'] == 0:
+            raise ValueError('无限重试请选每次失败移动，或设置有限重试次数')
     return config
 
 

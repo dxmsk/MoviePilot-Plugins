@@ -170,7 +170,7 @@ function onVisibility() {
     <header class="cloud115__header">
       <div class="cloud115__identity">
         <VIcon icon="mdi-cloud-upload" color="primary" size="30" />
-        <div><h1>115 网盘秒传</h1><p>SHA1 秒传 · 只读原文件 · qB 下载完成即推送</p></div>
+        <div><h1>115 网盘秒传</h1><p>SHA1 秒传 · 默认保留原文件 · qB 下载完成即推送</p></div>
       </div>
       <div class="cloud115__actions">
         <VChip :color="status.enabled ? 'success' : 'default'" size="small" variant="tonal">{{ status.enabled ? '已启用' : '未启用' }}</VChip>

@@ -16,8 +16,9 @@ from .scanner import DEFAULT_EXTENSIONS
 class QBWatcher:
     def __init__(self, qb: QBClient, push_callback, media_exts=None, logger=None,
                  done_tag=DEFAULT_DONE_TAG, stable_checks=2, stable_interval=2.0, min_size=1,
-                 status_callback=None, path_mappings="", retry_interval=600):
+                 status_callback=None, path_mappings="", retry_interval=600, resolve_file=None):
         self.qb, self.push = qb, push_callback
+        self.resolve_file = resolve_file or (lambda file, target: file)
         self.log = logger or (lambda message: None)
         self.status_callback = status_callback or (lambda task: None)
         self.done_tag = done_tag
@@ -195,7 +196,8 @@ class QBWatcher:
                     self._publish(torrent, "skipped", f"无选中的匹配媒体文件；未选择文件 {ignored} 个", [])
                     stats["skipped"] += 1
                     continue
-                details = [self._ready(x) for x in files]
+                resolved = [self.resolve_file(x, remote_dir) for x in files]
+                details = [x if x.get('confirmed') and x['progress'] >= 1 else self._ready(x) for x in resolved]
                 not_ready = [x for x in details if not x["ready"]]
                 if not_ready:
                     first = not_ready[0]
@@ -209,6 +211,8 @@ class QBWatcher:
                 self._publish(torrent, "uploading", f"媒体文件已就绪；仅处理选中文件（忽略 {ignored} 个未选文件）", details)
                 all_ok, messages, permanent_skip = True, [], False
                 for file in details:
+                    if file.get('confirmed'):
+                        continue
                     key = (file["path"], tuple(file["signature"]), remote_dir)
                     if key in self._success_files:
                         self._success_files.move_to_end(key)

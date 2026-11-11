@@ -6,7 +6,9 @@ from copy import deepcopy
 from typing import Optional
 from pydantic import BaseModel, ConfigDict, Field
 
-DEFAULTS = {"cookie": "", "user_agent": "", "extensions": "", "remote_dir": "/", "local_paths": []}
+DEFAULTS = {"cookie": "", "user_agent": "", "extensions": "", "remote_dir": "/", "local_paths": [],
+            "failure_move_enabled": False, "failure_move_dir": "", "delete_on_success": False,
+            "failure_move_preserve_structure": True}
 DEFAULT_EXTS = {"mkv", "mp4", "avi", "ts", "rmvb", "wmv", "flv", "mov", "m4v", "m2ts",
                 "srt", "ass", "ssa", "sub", "sup", "idx", "mp3", "flac", "aac", "wav", "m4a",
                 "ogg", "wma", "nfo", "jpg", "jpeg", "png"}
@@ -38,6 +40,18 @@ def remote_path(value):
     return posixpath.normpath("/" + path.lstrip("/"))
 
 
+def flag(value):
+    if isinstance(value, str):
+        if value.lower().strip() in {'false', '0', 'off', 'no', ''}:
+            return False
+        if value.lower().strip() in {'true', '1', 'on', 'yes'}:
+            return True
+        raise ValueError('文件动作开关必须是布尔值')
+    if not isinstance(value, (bool, int)) or value not in (False, True):
+        raise ValueError('文件动作开关必须是布尔值')
+    return bool(value)
+
+
 def normalize_config(raw):
     raw = raw if isinstance(raw, dict) else {}
     cfg = deepcopy(raw)
@@ -45,7 +59,15 @@ def normalize_config(raw):
                user_agent=str(raw.get("user_agent") or "").strip(),
                extensions=str(raw.get("extensions") or "").strip(),
                remote_dir=remote_path(raw.get("remote_dir")),
-               local_paths=paths_list(raw.get("local_paths")))
+               local_paths=paths_list(raw.get("local_paths")),
+               failure_move_enabled=flag(raw.get("failure_move_enabled", False)),
+               failure_move_dir=str(raw.get("failure_move_dir") or "").strip(),
+               delete_on_success=flag(raw.get("delete_on_success", False)),
+               failure_move_preserve_structure=flag(raw.get("failure_move_preserve_structure", True)))
+    from .fileactions import validate_directory
+    cfg['failure_move_dir'] = validate_directory(cfg['failure_move_dir'])
+    if cfg['failure_move_enabled'] and not cfg['failure_move_dir']:
+        raise ValueError('启用失败移动时必须设置失败目录')
     return cfg
 
 
@@ -63,6 +85,10 @@ class SettingsPayload(BaseModel):
     extensions: str = ""
     remote_dir: str = "/"
     local_paths: list[str] = Field(default_factory=list)
+    failure_move_enabled: bool = False
+    failure_move_dir: str = ""
+    delete_on_success: bool = False
+    failure_move_preserve_structure: bool = True
 
 
 class PushPayload(BaseModel):

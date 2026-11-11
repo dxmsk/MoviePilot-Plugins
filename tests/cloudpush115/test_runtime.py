@@ -126,7 +126,9 @@ def test_manual_config_migration_and_once_full_replacement(host):
     fields = {x["props"]["model"]: x for x in nodes(form) if x.get("props", {}).get("model")}
     assert fields["watch_paths"]["component"] == "VTextarea"
     assert default["watch_paths"] == "" and "access_token" not in fields
-    assert not any(x.get("component") in {"VHtml", "VExpansionPanels", "VSelect"} for x in nodes(form))
+    assert fields['failure_move_on']['component'] == 'VSelect'
+    assert not any(x.get('component') == 'VSelect' and x.get('props', {}).get('model') != 'failure_move_on' for x in nodes(form))
+    assert not any(x.get("component") in {"VHtml", "VExpansionPanels"} for x in nodes(form))
 
 
 def test_legacy_success_retry_migrate_and_render_actual_text(host):

@@ -42,7 +42,9 @@ function configSwitch() { vm.settingsOpen = false }
         <label class="m-check"><input v-model="vm.skipUnchanged" type="checkbox">跳过同账户／目标未变化的成功项</label>
         <p class="m-muted">默认手工补传，不因旧成功记录盲目跳过；秒传结果以115响应为准。</p>
         <div class="m-row m-spacer"><VBtn color="primary" size="large" :loading="vm.submitting" :disabled="!vm.canPush" @click="vm.push">{{ vm.status.running ? '任务运行中' : `开始秒传${vm.local.selected.length ? `（${vm.local.selected.length} 项）` : ''}` }}</VBtn><span v-if="vm.status.running" class="m-muted">可继续浏览与调整选择，当前任务使用提交时的快照。</span><span v-else-if="!vm.local.selected.length" class="m-muted">请先选择文件或文件夹</span></div>
+        <p class="m-muted">已保存文件策略：失败归档{{ vm.status.failure_move_enabled ? `至 ${vm.status.failure_move_dir}` : '关闭' }}；成功删除{{ vm.status.delete_on_success ? '开启' : '关闭' }}。修改请打开设置；当前任务使用提交时配置。</p>
       </section>
+
       <section class="m-card" aria-label="秒传任务进度">
         <div class="m-row"><div class="m-grow"><div class="m-kicker">03 · PROGRESS</div><h2>{{ phase }}</h2></div><VBtn v-if="vm.status.running" variant="tonal" color="warning" :loading="vm.cancelling" :disabled="vm.cancelRequested" @click="vm.cancel">{{ vm.cancelRequested ? '正在等待停止' : '停止任务' }}</VBtn></div>
         <VProgressLinear class="m-spacer" :model-value="vm.progress" :indeterminate="vm.status.running && !vm.status.job.total" height="7" rounded :aria-label="`任务进度 ${vm.progress}%`" />
@@ -61,7 +63,7 @@ function configSwitch() { vm.settingsOpen = false }
         <p v-if="!vm.filteredHistory.length" class="m-muted m-spacer">没有匹配的历史记录。</p>
         <div v-if="vm.historyPages > 1" class="m-pager"><VBtn variant="text" :disabled="vm.historyPage <= 1" @click="vm.historyPage--">上一页</VBtn><span>{{ Math.min(vm.historyPage, vm.historyPages) }} / {{ vm.historyPages }}</span><VBtn variant="text" :disabled="vm.historyPage >= vm.historyPages" @click="vm.historyPage++">下一页</VBtn></div>
       </section>
-      <p class="m-muted">ManualPush115 · {{ vm.status.version || '1.8.0' }} · 不触发任何自动调度</p>
+      <p class="m-muted">ManualPush115 · {{ vm.status.version || '1.9.0' }} · 不触发任何自动调度</p>
     </div>
     <LocalPicker :picker="vm.local" /><RemotePicker :picker="vm.remote" />
     <VDialog v-model="vm.settingsOpen" max-width="850" persistent scrollable><div class="m-dialog" style="padding: 0"><Config v-if="vm.settingsOpen" :api="api" :plugin-id="pluginId" :source-plugin-id="sourcePluginId" :native-subscribe="nativeSubscribe" is-embedded @saved="vm.settingsSaved" @save="emit('save', $event)" @close="vm.settingsOpen = false" @switch="configSwitch" /></div></VDialog>

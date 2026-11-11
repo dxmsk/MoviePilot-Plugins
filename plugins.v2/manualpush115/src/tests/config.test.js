@@ -16,7 +16,7 @@ test('standalone Config honors complete initialConfig and emits full save/switch
   await settle(); assert.equal(f.gets.length, 0)
   state.form.draft.user_agent = 'new agent'; await state.form.save()
   const saved = app.testEvents.save[0][0]
-  assert.deepEqual(Object.keys(saved).sort(), ['cookie', 'extensions', 'local_paths', 'remote_dir', 'user_agent'])
+  assert.deepEqual(Object.keys(saved).sort(), Object.keys(config()).sort())
   assert.equal(saved.cookie, config().cookie); assert.equal(saved.user_agent, 'new agent'); assert.equal(f.posts.length, 0)
   state.requestLeave('switch'); assert.equal(state.leaveKind, 'switch'); state.confirmLeave(); assert.ok(app.testEvents.switch)
   state.requestLeave('close'); assert.ok(app.testEvents.close)

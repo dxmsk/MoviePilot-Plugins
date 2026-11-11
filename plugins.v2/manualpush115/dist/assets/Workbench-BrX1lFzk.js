@@ -1,5 +1,5 @@
 import { importShared } from './__federation_fn_import-JrT3xvdd.js';
-import Config, { _ as _export_sfc, s as sizeText, c as createGeneration, e as errorText, n as normalizeSettings, a as clone, r as requestId, h as hostProps, u as useClient } from './__federation_expose_Config--inL-uro.js';
+import Config, { _ as _export_sfc, s as sizeText, c as createGeneration, e as errorText, n as normalizeSettings, a as clone, r as requestId, h as hostProps, u as useClient } from './__federation_expose_Config-CrfibsL-.js';
 
 const {createElementVNode:_createElementVNode$2,toDisplayString:_toDisplayString$2,createTextVNode:_createTextVNode$2,resolveComponent:_resolveComponent$2,withCtx:_withCtx$2,createVNode:_createVNode$2,renderList:_renderList$2,Fragment:_Fragment$2,openBlock:_openBlock$2,createElementBlock:_createElementBlock$2,createCommentVNode:_createCommentVNode$2,vModelText:_vModelText$1,withDirectives:_withDirectives$1,vModelCheckbox:_vModelCheckbox$1,createBlock:_createBlock$2,withModifiers:_withModifiers$1,unref:_unref$1} = await importShared('vue');
 
@@ -816,54 +816,55 @@ const _hoisted_19 = {
   key: 1,
   class: "m-muted"
 };
-const _hoisted_20 = {
+const _hoisted_20 = { class: "m-muted" };
+const _hoisted_21 = {
   class: "m-card",
   "aria-label": "秒传任务进度"
 };
-const _hoisted_21 = { class: "m-row" };
-const _hoisted_22 = { class: "m-grow" };
-const _hoisted_23 = { class: "m-muted m-spacer" };
-const _hoisted_24 = { class: "m-stats" };
-const _hoisted_25 = { class: "m-stat" };
+const _hoisted_22 = { class: "m-row" };
+const _hoisted_23 = { class: "m-grow" };
+const _hoisted_24 = { class: "m-muted m-spacer" };
+const _hoisted_25 = { class: "m-stats" };
 const _hoisted_26 = { class: "m-stat" };
 const _hoisted_27 = { class: "m-stat" };
 const _hoisted_28 = { class: "m-stat" };
-const _hoisted_29 = {
+const _hoisted_29 = { class: "m-stat" };
+const _hoisted_30 = {
   key: 0,
   class: "m-path"
 };
-const _hoisted_30 = {
+const _hoisted_31 = {
   key: 1,
   class: "m-path"
 };
-const _hoisted_31 = { key: 3 };
-const _hoisted_32 = {
+const _hoisted_32 = { key: 3 };
+const _hoisted_33 = {
   class: "m-card",
   "aria-label": "秒传历史"
 };
-const _hoisted_33 = { class: "m-row" };
-const _hoisted_34 = { class: "m-badge" };
-const _hoisted_35 = { class: "m-row m-spacer" };
-const _hoisted_36 = { class: "m-history" };
-const _hoisted_37 = { class: "m-row" };
-const _hoisted_38 = { class: "m-grow m-name" };
-const _hoisted_39 = { class: "m-badge" };
-const _hoisted_40 = { class: "m-muted m-path" };
-const _hoisted_41 = { class: "m-muted" };
-const _hoisted_42 = {
+const _hoisted_34 = { class: "m-row" };
+const _hoisted_35 = { class: "m-badge" };
+const _hoisted_36 = { class: "m-row m-spacer" };
+const _hoisted_37 = { class: "m-history" };
+const _hoisted_38 = { class: "m-row" };
+const _hoisted_39 = { class: "m-grow m-name" };
+const _hoisted_40 = { class: "m-badge" };
+const _hoisted_41 = { class: "m-muted m-path" };
+const _hoisted_42 = { class: "m-muted" };
+const _hoisted_43 = {
   key: 0,
   class: "m-path"
 };
-const _hoisted_43 = {
+const _hoisted_44 = {
   key: 0,
   class: "m-muted m-spacer"
 };
-const _hoisted_44 = {
+const _hoisted_45 = {
   key: 1,
   class: "m-pager"
 };
-const _hoisted_45 = { class: "m-muted" };
-const _hoisted_46 = {
+const _hoisted_46 = { class: "m-muted" };
+const _hoisted_47 = {
   class: "m-dialog",
   style: {"padding":"0"}
 };
@@ -1129,11 +1130,12 @@ return (_ctx, _cache) => {
             : (!vm.local.selected.length)
               ? (_openBlock(), _createElementBlock("span", _hoisted_19, "请先选择文件或文件夹"))
               : _createCommentVNode("", true)
-        ])
+        ]),
+        _createElementVNode("p", _hoisted_20, "已保存文件策略：失败归档" + _toDisplayString(vm.status.failure_move_enabled ? `至 ${vm.status.failure_move_dir}` : '关闭') + "；成功删除" + _toDisplayString(vm.status.delete_on_success ? '开启' : '关闭') + "。修改请打开设置；当前任务使用提交时配置。", 1)
       ]),
-      _createElementVNode("section", _hoisted_20, [
-        _createElementVNode("div", _hoisted_21, [
-          _createElementVNode("div", _hoisted_22, [
+      _createElementVNode("section", _hoisted_21, [
+        _createElementVNode("div", _hoisted_22, [
+          _createElementVNode("div", _hoisted_23, [
             _cache[38] || (_cache[38] = _createElementVNode("div", { class: "m-kicker" }, "03 · PROGRESS", -1)),
             _createElementVNode("h2", null, _toDisplayString(phase.value), 1)
           ]),
@@ -1161,33 +1163,33 @@ return (_ctx, _cache) => {
           rounded: "",
           "aria-label": `任务进度 ${vm.progress}%`
         }, null, 8, ["model-value", "indeterminate", "aria-label"]),
-        _createElementVNode("p", _hoisted_23, "已处理 " + _toDisplayString(vm.status.job.processed || 0) + " / " + _toDisplayString(vm.status.job.total || 0) + " · 剩余 " + _toDisplayString(vm.status.job.remaining ?? Math.max(0, (vm.status.job.total || 0) - (vm.status.job.processed || 0))) + _toDisplayString(vm.status.running && !vm.status.job.total ? ' · 后台收集中，不等待前端哈希' : ''), 1),
-        _createElementVNode("div", _hoisted_24, [
-          _createElementVNode("div", _hoisted_25, [
+        _createElementVNode("p", _hoisted_24, "已处理 " + _toDisplayString(vm.status.job.processed || 0) + " / " + _toDisplayString(vm.status.job.total || 0) + " · 剩余 " + _toDisplayString(vm.status.job.remaining ?? Math.max(0, (vm.status.job.total || 0) - (vm.status.job.processed || 0))) + _toDisplayString(vm.status.running && !vm.status.job.total ? ' · 后台收集中，不等待前端哈希' : ''), 1),
+        _createElementVNode("div", _hoisted_25, [
+          _createElementVNode("div", _hoisted_26, [
             _createElementVNode("strong", null, _toDisplayString(vm.status.job.success || 0), 1),
             _cache[39] || (_cache[39] = _createTextVNode("成功", -1))
           ]),
-          _createElementVNode("div", _hoisted_26, [
+          _createElementVNode("div", _hoisted_27, [
             _createElementVNode("strong", null, _toDisplayString(vm.status.job.failed || 0), 1),
             _cache[40] || (_cache[40] = _createTextVNode("失败", -1))
           ]),
-          _createElementVNode("div", _hoisted_27, [
+          _createElementVNode("div", _hoisted_28, [
             _createElementVNode("strong", null, _toDisplayString(vm.status.job.skipped || 0), 1),
             _cache[41] || (_cache[41] = _createTextVNode("跳过", -1))
           ]),
-          _createElementVNode("div", _hoisted_28, [
+          _createElementVNode("div", _hoisted_29, [
             _createElementVNode("strong", null, _toDisplayString(vm.progress) + "%", 1),
             _cache[42] || (_cache[42] = _createTextVNode("进度", -1))
           ])
         ]),
         (vm.status.job.current_file)
-          ? (_openBlock(), _createElementBlock("p", _hoisted_29, [
+          ? (_openBlock(), _createElementBlock("p", _hoisted_30, [
               _cache[43] || (_cache[43] = _createElementVNode("span", { class: "m-muted" }, "当前文件：", -1)),
               _createTextVNode(_toDisplayString(vm.status.job.current_file), 1)
             ]))
           : _createCommentVNode("", true),
         (vm.status.job.message)
-          ? (_openBlock(), _createElementBlock("p", _hoisted_30, _toDisplayString(vm.status.job.message), 1))
+          ? (_openBlock(), _createElementBlock("p", _hoisted_31, _toDisplayString(vm.status.job.message), 1))
           : _createCommentVNode("", true),
         (vm.status.job.persist_error)
           ? (_openBlock(), _createBlock(_component_VAlert, {
@@ -1202,7 +1204,7 @@ return (_ctx, _cache) => {
             }))
           : _createCommentVNode("", true),
         (vm.status.job.errors?.length)
-          ? (_openBlock(), _createElementBlock("details", _hoisted_31, [
+          ? (_openBlock(), _createElementBlock("details", _hoisted_32, [
               _createElementVNode("summary", null, "查看任务错误（" + _toDisplayString(vm.status.job.errors.length) + "）", 1),
               (_openBlock(true), _createElementBlock(_Fragment, null, _renderList(vm.status.job.errors, (item, index) => {
                 return (_openBlock(), _createElementBlock("p", {
@@ -1214,12 +1216,12 @@ return (_ctx, _cache) => {
           : _createCommentVNode("", true),
         _cache[44] || (_cache[44] = _createElementVNode("p", { class: "m-muted" }, "仅任务运行时每2秒刷新状态；页面隐藏时暂停。停止请求会等待当前文件完成。", -1))
       ]),
-      _createElementVNode("section", _hoisted_32, [
-        _createElementVNode("div", _hoisted_33, [
+      _createElementVNode("section", _hoisted_33, [
+        _createElementVNode("div", _hoisted_34, [
           _cache[45] || (_cache[45] = _createElementVNode("h2", { class: "m-grow" }, "秒传历史", -1)),
-          _createElementVNode("span", _hoisted_34, _toDisplayString(vm.filteredHistory.length) + " 条", 1)
+          _createElementVNode("span", _hoisted_35, _toDisplayString(vm.filteredHistory.length) + " 条", 1)
         ]),
-        _createElementVNode("div", _hoisted_35, [
+        _createElementVNode("div", _hoisted_36, [
           _withDirectives(_createElementVNode("input", {
             "onUpdate:modelValue": _cache[13] || (_cache[13] = $event => ((vm.historyQuery) = $event)),
             class: "m-input m-grow",
@@ -1243,28 +1245,28 @@ return (_ctx, _cache) => {
             [_vModelSelect, vm.historyFilter]
           ])
         ]),
-        _createElementVNode("div", _hoisted_36, [
+        _createElementVNode("div", _hoisted_37, [
           (_openBlock(true), _createElementBlock(_Fragment, null, _renderList(vm.pagedHistory, (row, index) => {
             return (_openBlock(), _createElementBlock("article", {
               key: `${row.path}-${row.time}-${index}`
             }, [
-              _createElementVNode("div", _hoisted_37, [
-                _createElementVNode("strong", _hoisted_38, _toDisplayString(row.name || row.path), 1),
-                _createElementVNode("span", _hoisted_39, _toDisplayString(statusLabel(row.status)), 1)
+              _createElementVNode("div", _hoisted_38, [
+                _createElementVNode("strong", _hoisted_39, _toDisplayString(row.name || row.path), 1),
+                _createElementVNode("span", _hoisted_40, _toDisplayString(statusLabel(row.status)), 1)
               ]),
-              _createElementVNode("p", _hoisted_40, _toDisplayString(row.path) + " → " + _toDisplayString(row.remote_dir), 1),
-              _createElementVNode("p", _hoisted_41, _toDisplayString(_unref(sizeText)(row.size)) + " · " + _toDisplayString(row.time || '—'), 1),
+              _createElementVNode("p", _hoisted_41, _toDisplayString(row.path) + " → " + _toDisplayString(row.remote_dir), 1),
+              _createElementVNode("p", _hoisted_42, _toDisplayString(_unref(sizeText)(row.size)) + " · " + _toDisplayString(row.time || '—'), 1),
               (row.message)
-                ? (_openBlock(), _createElementBlock("p", _hoisted_42, _toDisplayString(row.message), 1))
+                ? (_openBlock(), _createElementBlock("p", _hoisted_43, _toDisplayString(row.message), 1))
                 : _createCommentVNode("", true)
             ]))
           }), 128))
         ]),
         (!vm.filteredHistory.length)
-          ? (_openBlock(), _createElementBlock("p", _hoisted_43, "没有匹配的历史记录。"))
+          ? (_openBlock(), _createElementBlock("p", _hoisted_44, "没有匹配的历史记录。"))
           : _createCommentVNode("", true),
         (vm.historyPages > 1)
-          ? (_openBlock(), _createElementBlock("div", _hoisted_44, [
+          ? (_openBlock(), _createElementBlock("div", _hoisted_45, [
               _createVNode(_component_VBtn, {
                 variant: "text",
                 disabled: vm.historyPage <= 1,
@@ -1289,7 +1291,7 @@ return (_ctx, _cache) => {
             ]))
           : _createCommentVNode("", true)
       ]),
-      _createElementVNode("p", _hoisted_45, "ManualPush115 · " + _toDisplayString(vm.status.version || '1.8.0') + " · 不触发任何自动调度", 1)
+      _createElementVNode("p", _hoisted_46, "ManualPush115 · " + _toDisplayString(vm.status.version || '1.9.0') + " · 不触发任何自动调度", 1)
     ]),
     _createVNode(LocalPicker, {
       picker: vm.local
@@ -1305,7 +1307,7 @@ return (_ctx, _cache) => {
       scrollable: ""
     }, {
       default: _withCtx(() => [
-        _createElementVNode("div", _hoisted_46, [
+        _createElementVNode("div", _hoisted_47, [
           (vm.settingsOpen)
             ? (_openBlock(), _createBlock(Config, {
                 key: 0,
@@ -1329,6 +1331,6 @@ return (_ctx, _cache) => {
 }
 
 };
-const Workbench = /*#__PURE__*/_export_sfc(_sfc_main, [['__scopeId',"data-v-15814e2f"]]);
+const Workbench = /*#__PURE__*/_export_sfc(_sfc_main, [['__scopeId',"data-v-df7fe0d7"]]);
 
 export { Workbench as W };

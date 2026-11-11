@@ -6,7 +6,7 @@ import { parse, compileScript, compileTemplate, compileStyle } from 'vue/compile
 export const defer = () => { let resolve, reject; const promise = new Promise((a, b) => { resolve = a; reject = b }); return { promise, resolve, reject } }
 export const settle = async () => { for (let i = 0; i < 16; i++) { await Promise.resolve(); await nextTick() } }
 export const ok = data => ({ success: true, message: '', data })
-export const config = () => ({ cookie: 'test-cookie-not-real', user_agent: 'test-UA', extensions: 'mkv,mp4', remote_dir: '/待整理', local_paths: ['/media/original'] })
+export const config = () => ({ cookie: 'test-cookie-not-real', user_agent: 'test-UA', extensions: 'mkv,mp4', remote_dir: '/待整理', local_paths: ['/media/original'], failure_move_enabled: false, failure_move_dir: '', delete_on_success: false, failure_move_preserve_structure: true })
 export const listing = (path, entries = [], extra = {}) => ({ path, parent: path.slice(0, path.lastIndexOf('/')) || null, entries, total: entries.length, offset: 0, limit: 100, has_more: false, warnings: [], ...extra })
 export const directory = path => ({ path, name: path.split('/').at(-1), is_dir: true, selectable: true })
 export const remoteListing = (cid = '0', path = '/', parent_cid = null, extra = {}) => ({ cid, path, parent_cid, entries: [], offset: 0, limit: 100, has_more: false, ...extra })

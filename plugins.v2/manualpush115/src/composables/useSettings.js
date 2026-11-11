@@ -1,7 +1,7 @@
 import { computed, ref } from 'vue'
 import { clone, completeSettings, createGeneration, errorText, normalizeSettings } from '../utils/api.js'
 export function useSettings(client, initialConfig, embedded, emit) {
-  const draft = ref({ cookie: '', user_agent: '', extensions: '', remote_dir: '/', local_paths: [] })
+  const draft = ref({ cookie: '', user_agent: '', extensions: '', remote_dir: '/', local_paths: [], failure_move_enabled: false, failure_move_dir: '', delete_on_success: false, failure_move_preserve_structure: true })
   const saved = ref(null), loaded = ref(false), loading = ref(false), saving = ref(false), testing = ref(false)
   const error = ref(''), notice = ref(''), revision = ref(null)
   const gate = createGeneration()

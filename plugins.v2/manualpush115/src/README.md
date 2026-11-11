@@ -1,4 +1,4 @@
-# ManualPush115 1.8.0 联邦前端
+# ManualPush115 1.9.0 联邦前端
 
 ## 构建与测试
 
@@ -37,7 +37,7 @@ Config 接收完整 `initialConfig`，提供 `save`／`switch`／`close`；初�
 
 上传仅 POST 快照，不在 UI 计算 hash；`force=true`、`preserve_structure=true` 默认开启。结构保留由后端定义为所选目录 basename + 子层。运行中只轮询 status（2秒），页面隐藏／失活／卸载停止计时；初始隐藏 WebView 仍执行首次载入。
 
-`settings` 完整字段：cookie、user_agent、extensions、remote_dir、local_paths。所有接口使用 `{success,message,data}`（兼容 Axios 的外层 data）。状态支持 collecting/running/cancelling/completed/completed_with_errors/failed/cancelled/interrupted，并展示 message/errors/persist_error。
+`settings` 原有必需字段：cookie、user_agent、extensions、remote_dir、local_paths。新增 failure_move_enabled、failure_move_dir、delete_on_success、failure_move_preserve_structure；旧五字段配置以关闭动作和保留结构默认值迁移，保存时包含全部九字段。首页只显示已保存策略，修改在设置页完成。所有接口使用 `{success,message,data}`（兼容 Axios 的外层 data）。状态支持 collecting/running/cancelling/completed/completed_with_errors/failed/cancelled/interrupted，并展示 message/errors/persist_error。
 
 ## 样式边界
 

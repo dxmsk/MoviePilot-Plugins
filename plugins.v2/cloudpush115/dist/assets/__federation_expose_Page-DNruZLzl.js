@@ -1,5 +1,5 @@
 import { importShared } from './__federation_fn_import-JrT3xvdd.js';
-import { W as Workbench } from './Workbench-D2srnewj.js';
+import { W as Workbench } from './Workbench-Ce3-wtO_.js';
 
 const {openBlock:_openBlock,createBlock:_createBlock} = await importShared('vue');
 

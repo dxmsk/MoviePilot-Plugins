@@ -32,7 +32,11 @@ from .qb_watcher import QBWatcher
 from .scanner import MediaScanner, RetryQueue
 
 
-class RuntimeMixin:
+from .actions import ActionsMixin
+from .fileactions import path_lock, signature as file_signature
+
+
+class RuntimeMixin(ActionsMixin):
     STATE_KEY = "state_v2"
     LOG = "[115秒传] "
 
@@ -210,8 +214,9 @@ class RuntimeMixin:
         except Exception as exc:
             self._set_error("启动调度失败：" + clean_message(exc, cfg))
 
-    def _qb_tick(self, generation: int):
+    def _qb_tick(self, generation: int = None):
         """Runs on its own APScheduler thread; never queued behind scan/retry."""
+        generation = self._generation if generation is None else generation
         if not self._is_current(generation):
             return
         with self._state_lock:
@@ -399,7 +404,9 @@ class RuntimeMixin:
         with self._state_lock:
             # An inaccessible share must not erase previously visible pending files.
             for path, old in self._inventory.items():
-                if path not in discovered and any(path == r or path.startswith(r.rstrip("/") + "/") for r in failed_roots):
+                if path not in discovered and old.get('original_path') and path in self._queue.pending:
+                    discovered[path] = old
+                elif path not in discovered and any(path == r or path.startswith(r.rstrip("/") + "/") for r in failed_roots):
                     discovered[path] = {**old, "status": "blocked", "message": "监控目录暂时不可读，保留原队列"}
             self._inventory = discovered
             self._root_states = list(root_state.values())
@@ -432,11 +439,26 @@ class RuntimeMixin:
             self._notify_result("115本地秒传完成", f"成功 {completed} · 失败 {failed}；队列详情见插件主页")
 
     def _transfer(self, item: dict, cfg: dict, source: str = "local", target: str = None) -> dict:
+        with path_lock(item['path']):
+            return self._transfer_locked(item, cfg, source, target)
+
+    def _transfer_locked(self, item: dict, cfg: dict, source: str = "local", target: str = None) -> dict:
+        before_signature = None
         target = remote_path(target if target is not None else cfg["remote_dir"])
+        if not Path(item['path']).exists():
+            key = task_key(item['path'], target, account_scope(cfg))
+            with self._state_lock:
+                prior = deepcopy(self._ledger.get(key, {}))
+            if (prior.get('status') == 'success' and prior.get('delete_status') in {'pending', 'success'}
+                    and prior.get('signature') == signature(item)):
+                return {'ok': True, 'reuse': True, 'message': '已确认秒传并按设置删除原文件'}
+            if prior.get('relocated_path'):
+                return {'ok': False, 'relocated': True, 'message': '文件已归档，归档路径任务负责后续重试'}
         path = str(item["path"])
         scope = account_scope(cfg)
         local_source = source != "qb"
         try:
+            before_signature = file_signature(path)
             live = self._file_item(path)
             item = {**item, **live}
             if self._completed(item, cfg, target):
@@ -456,6 +478,8 @@ class RuntimeMixin:
             client = self._make_client(cfg)
             directory_id = self._remote_dir_id(client, cfg, target)
             result = dict(client.push_file(Path(path), directory_id))
+            if file_signature(path) != before_signature:
+                result = {'ok': False, 'message': '文件在秒传期间发生变化，保留源文件'}
         except P115AuthError as exc:
             result = {"ok": False, "auth_error": True, "message": "115登录校验失败：" + clean_message(exc, cfg)}
         except (P115WebError, OSError) as exc:
@@ -484,6 +508,7 @@ class RuntimeMixin:
                 state = "success" if ok else ("skipped" if skipped else "retry")
                 self._queue_row(item, state, result["message"], remote_dir=target)
         self._append_history(item, result, ok, skipped=skipped, source=source, target=target)
+        self._file_action(item, result, cfg, source, target, before_signature, ok, skipped)
         if ok:
             logger.info(self.LOG + f"秒传成功 [{source}]：{item.get('name', path)} -> {target}")
         if not ok and not skipped:
@@ -600,6 +625,7 @@ class RuntimeMixin:
                 logger=self._qb_log, done_tag=cfg["qb_done_tag"],
                 stable_checks=1, stable_interval=cfg["qb_settle"],
                 status_callback=self._qb_status, path_mappings=cfg["qb_path_mappings"],
+                resolve_file=self._resolve_qb_file,
                 retry_interval=cfg["retry_interval"],
             )
             self._qb_watcher_generation = gen
@@ -739,9 +765,6 @@ class RuntimeMixin:
 
     def _retry_tick(self):
         return self._enqueue("retry")
-
-    def _qb_tick(self):
-        return self._enqueue("qb")
 
     def _plugin_action(self, event):
         action = (event.event_data or {}).get("action", "")
