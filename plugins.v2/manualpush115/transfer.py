@@ -6,7 +6,7 @@ import posixpath
 import time
 from copy import deepcopy
 from pathlib import Path
-from .p115_web import P115AuthError
+from .p115_web import P115AuthError, P115ResponseError
 from .fileactions import delete_source, move_failed, signature, path_lock
 
 
@@ -101,6 +101,9 @@ class TransferMixin:
                                 failures = 0
                             else:
                                 record["message"] = result.get("message") or "115未确认秒传成功"
+                    except P115ResponseError as exc:
+                        record["message"] = self._error(exc, cfg)
+                        record["remote_result"] = "unconfirmed"
                     except P115AuthError as exc:
                         record["message"] = self._error(exc, cfg)
                         abort = True

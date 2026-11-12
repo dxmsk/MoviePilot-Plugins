@@ -63,6 +63,10 @@ class P115AuthError(P115WebError):
     """Cookie 失效 / 未登录。"""
 
 
+class P115ResponseError(P115WebError):
+    """Upload response is unreadable; remote success/failure is unknown."""
+
+
 def parse_cookie_string(raw: str) -> Dict[str, str]:
     """
     解析多种常见格式的 Cookie（覆盖用户实际会复制的各种形态）：
@@ -530,7 +534,7 @@ class P115WebClient:
             from .response import decode_upload_response
             return decode_upload_response(raw)
         except Exception as exc:  # noqa: BLE001
-            raise P115WebError(f"解析上传响应失败: {exc}") from exc
+            raise P115ResponseError(f"解析上传响应失败: {exc}") from exc
 
     def push_file(
         self,

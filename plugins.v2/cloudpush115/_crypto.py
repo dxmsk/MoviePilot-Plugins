@@ -80,6 +80,8 @@ def aes_cbc_encrypt(data: bytes, key: bytes = AES_KEY, iv: bytes = AES_IV) -> by
 
 
 def aes_cbc_decrypt(cipher: bytes, key: bytes = AES_KEY, iv: bytes = AES_IV) -> bytes:
+    if not cipher or len(cipher) % 16:
+        raise ValueError("AES ciphertext length must be a positive multiple of 16")
     decrypt = AES(key).decrypt
     out = bytearray()
     last = iv
@@ -91,56 +93,52 @@ def aes_cbc_decrypt(cipher: bytes, key: bytes = AES_KEY, iv: bytes = AES_IV) -> 
 
 
 def lz4_block_decompress(source: bytes, uncompressed_size: int = -1) -> bytes:
-    """纯 Python 的 LZ4 block 解压。"""
-    src = source
-    src_len = len(src)
-    src_ptr = 0
+    """Decode a raw block without accepting truncated literals/invalid offsets."""
+    src = memoryview(source)
+    pos, size = 0, len(src)
     dest = bytearray()
-    while src_ptr < src_len:
-        token = src[src_ptr]
-        src_ptr += 1
-        lit_len = token >> 4
-        if lit_len == 15:
-            start = src_ptr
-            try:
-                while src[src_ptr] == 255:
-                    src_ptr += 1
-                lit_len += (src_ptr - start) * 255 + src[src_ptr]
-                src_ptr += 1
-            except IndexError:
-                pass
-        if lit_len:
-            dest += src[src_ptr:src_ptr + lit_len]
-            src_ptr += lit_len
-        if src_ptr >= src_len:
-            break
-        offset = src[src_ptr] | (src[src_ptr + 1] << 8)
-        src_ptr += 2
-        match_len = token & 0x0F
-        if match_len == 15:
-            start = src_ptr
-            try:
-                while src[src_ptr] == 255:
-                    src_ptr += 1
-                match_len += (src_ptr - start) * 255 + src[src_ptr]
-                src_ptr += 1
-            except IndexError:
-                pass
-        match_len += 4
-        dest_ptr = len(dest)
-        match_pos = dest_ptr - offset
-        if offset >= match_len:
-            dest += dest[match_pos:match_pos + match_len]
-        else:
-            if offset == 1:
-                dest += bytes((dest[match_pos],)) * match_len
-            else:
-                end_ptr = dest_ptr + match_len
-                while dest_ptr < end_ptr:
-                    copy_size = offset if offset < (end_ptr - dest_ptr) else (end_ptr - dest_ptr)
-                    dest += dest[match_pos:match_pos + copy_size]
-                    dest_ptr += copy_size
-                    offset += offset
+    maximum = uncompressed_size if uncompressed_size >= 0 else 8 * 1024 * 1024
+
+    def length(value):
+        nonlocal pos
+        if value == 15:
+            while True:
+                if pos >= size:
+                    raise ValueError('LZ4 truncated extended length')
+                extra = src[pos]
+                pos += 1
+                value += extra
+                if extra != 255:
+                    break
+        return value
+
+    while pos < size:
+        token = src[pos]
+        pos += 1
+        literals = length(token >> 4)
+        if pos + literals > size:
+            raise ValueError('LZ4 truncated literals')
+        if len(dest) + literals > maximum:
+            raise ValueError('LZ4 output limit exceeded')
+        dest.extend(src[pos:pos + literals])
+        pos += literals
+        if pos == size:
+            return bytes(dest)
+        if pos + 2 > size:
+            raise ValueError('LZ4 truncated offset')
+        offset = src[pos] | (src[pos + 1] << 8)
+        pos += 2
+        if offset == 0 or offset > len(dest):
+            raise ValueError('LZ4 invalid offset')
+        count = length(token & 15) + 4
+        if len(dest) + count > maximum:
+            raise ValueError('LZ4 output limit exceeded')
+        # Overlapping matches repeat earlier decoded bytes, not a fixed slice.
+        while count:
+            chunk = min(offset, count)
+            start = len(dest) - offset
+            dest.extend(dest[start:start + chunk])
+            count -= chunk
     return bytes(dest)
 
 
@@ -148,7 +146,11 @@ def lz4_decompress(source: bytes) -> bytes:
     src = source
     data = b""
     while src and len(src) > 2 and (src_len := (src[0] + (src[1] << 8))):
-        data += lz4_block_decompress(src[2:src_len + 2])
+        if src_len > len(src) - 2:
+            raise ValueError("LZ4 frame length exceeds remaining data")
+        data += lz4_block_decompress(src[2:src_len + 2], 0x2000)
+        if len(data) > 8 * 1024 * 1024:
+            raise ValueError("LZ4 response output limit exceeded")
         src = src[src_len + 2:]
     return data
 

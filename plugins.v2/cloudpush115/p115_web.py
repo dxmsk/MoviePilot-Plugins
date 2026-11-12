@@ -14,6 +14,9 @@ import time
 from http.cookiejar import CookieJar
 from pathlib import Path
 from typing import Any, Dict, Optional
+from urllib.parse import urlencode
+
+
 def _decode_bytes(raw: bytes) -> str:
     """UTF-8 → GB18030 → latin-1 fallback; never raises on valid byte sequences."""
     for enc in ('utf-8-sig', 'gb18030'):
@@ -58,6 +61,10 @@ class P115WebError(Exception):
 
 class P115AuthError(P115WebError):
     """Cookie 失效 / 未登录。"""
+
+
+class P115ResponseError(P115WebError):
+    """Upload response is unreadable; remote success/failure is unknown."""
 
 
 def parse_cookie_string(raw: str) -> Dict[str, str]:
@@ -527,7 +534,7 @@ class P115WebClient:
             from .response import decode_upload_response
             return decode_upload_response(raw)
         except Exception as exc:  # noqa: BLE001
-            raise P115WebError(f"解析上传响应失败: {exc}") from exc
+            raise P115ResponseError(f"解析上传响应失败: {exc}") from exc
 
     def push_file(
         self,
