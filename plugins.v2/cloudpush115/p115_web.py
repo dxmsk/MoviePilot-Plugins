@@ -14,6 +14,7 @@ import time
 from http.cookiejar import CookieJar
 from pathlib import Path
 from typing import Any, Dict, Optional
+from urllib.error import HTTPError
 from urllib.parse import urlencode
 
 
@@ -208,12 +209,27 @@ class P115WebClient:
                 body = data.encode("utf-8")
             else:
                 body = data
-        req = Request(url, data=body, headers=hdrs, method=method)
-        try:
-            with self._opener.open(req, timeout=timeout) as resp:
-                return resp.read()
-        except Exception as exc:  # noqa: BLE001
-            raise P115WebError(f"请求失败 {url}: {exc}") from exc
+        transient = {408, 425, 429, 500, 502, 503, 504}
+        last = None
+        for attempt in range(3):
+            req = Request(url, data=body, headers=hdrs, method=method)
+            try:
+                with self._opener.open(req, timeout=timeout) as resp:
+                    return resp.read()
+            except HTTPError as exc:
+                last = exc
+                if exc.code not in transient or attempt == 2:
+                    break
+                retry_after = exc.headers.get('Retry-After', '') if exc.headers else ''
+                try:
+                    wait = min(8.0, max(0.25, float(retry_after)))
+                except (TypeError, ValueError):
+                    wait = 0.5 * (2 ** attempt)
+                time.sleep(wait)
+            except Exception as exc:  # noqa: BLE001
+                last = exc
+                break
+        raise P115WebError(f"请求失败 {url}: {last}") from last
 
     def _get_json(self, url: str, params: Optional[dict] = None,
                   timeout: int = 30) -> dict:
