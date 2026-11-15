@@ -1,4 +1,4 @@
-# CloudPush115 1.8.0
+# CloudPush115 1.8.1
 
 MoviePilot V2：本地扫描、事件实时监控、失败重试和 qB 下载完成后 SHA1 秒传。默认保留原文件。插件设置可在宿主原生表单或 Vue 配置页中完成，路径均填写 MP 容器内的绝对路径。
 
@@ -49,3 +49,9 @@ PYTHONDONTWRITEBYTECODE=1 python -m pytest tests/manualpush115 tests/cloudpush11
 | 秒传明确成功后删除 | 开 |
 
 所有路径都使用 MP 容器内的实际路径。建议整个 `/a` 统一挂载，`/a/c` 与 `/a/b` 必须支持相互创建硬链接。上述示例需用户填写；升级不会自动填路径或开启失败动作、成功删除。
+
+## 1.8.1 响应兼容修复
+
+对照 `g-steven037/MoviePilot-Plugins` 的 `p115rapidretry/rapid.py`（通过 `upload_file_init` 及区间读取回调调用 p115client）与 `ChenyangGao/p115client` 的 `modules/p115cipher/p115cipher/util.py`。后者 PyCryptodome 分支仅解密响应中的完整 AES 块。当前插件在 ECDH 传输层对齐这一行为，直接 AES 原语仍拒绝非16字节对齐密文；解压后的 JSON 必须完整有效，绝不按片段推断成功。新增 `parser=3`、`remainder` 无敏感诊断。
+
+日志 `wire=220` 和 `wire=236` 都余12字节，旧版在 AES 长度检查即失败；相同长度的合成响应已加入回归。没有用户原始响应，尚不能认定全部实际故障已排除。qB下载源直传和MP整理后监控为独立入口；仅要处理整理后 `/a/b` 时应关闭qB联动、源目录 `/a/a` 保护保留。

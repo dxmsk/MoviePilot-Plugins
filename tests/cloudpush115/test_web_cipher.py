@@ -34,3 +34,39 @@ def test_lz4_reference():
  for _ in range(250):
   raw=bytes(rng.randrange(256) for i in range(rng.randrange(1,100)))*rng.randrange(1,50)
   assert crypto.lz4_block_decompress(lz4.compress(raw,store_size=False))==raw
+
+
+@pytest.mark.parametrize('tail_size', range(1, 16))
+@pytest.mark.parametrize('status', [1, 2, 7])
+def test_ecdh_transport_tail_matches_p115cipher(status, tail_size):
+    data = {'status': status, 'message': 'fixture response'}
+    cipher = pack(json.dumps(data).encode())
+    assert response.decode_upload_response(cipher + b'\xa5' * tail_size) == data
+    # Direct AES remains strict: normalization belongs only to ECDH transport.
+    with pytest.raises(ValueError):
+        crypto.aes_cbc_decrypt(cipher + b'\xa5' * tail_size)
+
+
+@pytest.mark.parametrize('wire', [220, 236])
+def test_logged_response_lengths_synthetic_regression(wire):
+    for n in range(300):
+        data = {'status': 7, 'message': 'x' * n}
+        cipher = pack(json.dumps(data).encode())
+        if len(cipher) == wire - 12:
+            raw = cipher + b'\x99' * 12
+            assert len(raw) == wire
+            assert response.decode_upload_response(raw) == data
+            return
+    pytest.fail('Unable to construct synthetic wire length')
+
+
+@pytest.mark.parametrize('raw', [b'{"status":2}junk', b'{"status":2,"x":}', b'not json'])
+def test_transport_tail_does_not_bypass_json_validation(raw):
+    with pytest.raises(ValueError):
+        response.decode_upload_response(pack(raw) + b'\xa5' * 12)
+
+
+@pytest.mark.parametrize('size', range(16))
+def test_partial_transport_without_complete_aes_block_rejected(size):
+    with pytest.raises(ValueError):
+        response.decode_upload_response(b'\xa5' * size)

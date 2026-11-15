@@ -160,7 +160,13 @@ def ecdh_aes_encrypt(data: bytes) -> bytes:
 
 
 def ecdh_aes_decrypt(cipher: bytes) -> bytes:
-    return lz4_decompress(aes_cbc_decrypt(cipher))
+    # Match p115cipher's PyCryptodome transport wrapper: only complete AES
+    # blocks are ciphertext. Some responses include a partial transport tail.
+    # Keep the raw AES primitive strict and validate LZ4 + complete JSON above.
+    complete = len(cipher) & -16
+    if not complete:
+        raise ValueError('ECDH response contains no complete AES block')
+    return lz4_decompress(aes_cbc_decrypt(cipher[:complete]))
 
 
 def content_maybe_decrypt(content: bytes) -> bytes:

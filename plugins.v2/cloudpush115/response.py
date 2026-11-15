@@ -1,7 +1,7 @@
 """Strict upload JSON parsing with content-free failure diagnostics.
 
-Never discard bytes, trim an invalid suffix, or infer remote success from a
-partially parsed response. Diagnostics contain structure/offsets, not values.
+Transport AES blocks follow p115cipher compatibility; decompressed content
+must parse completely, with no invalid JSON suffix or inferred remote success.
 """
 import hashlib
 import json
@@ -50,7 +50,7 @@ def decode_upload_response(raw):
     if not isinstance(raw, bytes) or not raw:
         raise UploadResponseError('响应为空或非二进制数据')
     rid = hashlib.sha256(raw).hexdigest()[:12]
-    common = 'parser=2 wire=%d id=%s' % (len(raw), rid)
+    common = 'parser=3 wire=%d remainder=%d id=%s' % (len(raw), len(raw) % 16, rid)
     plain = raw.lstrip()
     if plain.startswith((b'{', b'[', b'\xef\xbb\xbf')):
         stage, payload = '明文', plain

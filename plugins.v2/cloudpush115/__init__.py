@@ -27,7 +27,7 @@ class CloudPush115(RuntimeMixin, UiMixin, _PluginBase):
     plugin_name = "115网盘秒传"
     plugin_desc = "整理事件实时入队、115秒传、硬链接失败重试与成功清理、源目录保护。"
     plugin_icon = "clouddisk.png"
-    plugin_version = "1.8.0"
+    plugin_version = "1.8.1"
     plugin_author = "Minis"
     author_url = "https://github.com/dxmsk/MoviePilot-Plugins"
     plugin_config_prefix = "cloudpush115_"
