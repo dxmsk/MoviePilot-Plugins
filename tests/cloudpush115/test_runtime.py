@@ -128,9 +128,9 @@ def test_manual_config_migration_and_once_full_replacement(host):
     assert default["watch_paths"] == "" and "access_token" not in fields
     assert fields['failure_move_on']['component'] == 'VSelect'
     assert fields['failure_action']['component'] == 'VSelect'
-    for key in ('realtime_enabled', 'realtime_settle', 'protected_paths', 'hardlink_only'):
+    for key in ('monitor_mode', 'realtime_settle', 'protected_paths', 'hardlink_only'):
         assert key in fields
-    assert not any(x.get('component') == 'VSelect' and x.get('props', {}).get('model') not in {'failure_move_on', 'failure_action'} for x in nodes(form))
+    assert not any(x.get('component') == 'VSelect' and x.get('props', {}).get('model') not in {'failure_move_on', 'failure_action', 'monitor_mode'} for x in nodes(form))
     assert not any(x.get("component") in {"VHtml", "VExpansionPanels"} for x in nodes(form))
 
 

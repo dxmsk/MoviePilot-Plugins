@@ -1,6 +1,10 @@
-# CloudPush115 1.8.2
+# CloudPush115 1.8.3
 
 MoviePilot V2：本地扫描、事件实时监控、失败重试和 qB 下载完成后 SHA1 秒传。默认保留原文件。插件设置可在宿主原生表单或 Vue 配置页中完成，路径均填写 MP 容器内的绝对路径。
+
+## 监控入口选择
+
+设置项 `monitor_mode` 可选：`transfer`（MP整理完成事件）、`downloader`（下载器监控）或 `both`（两者同时启用）。旧配置中的 `qb_enabled=true` 会自动迁移为 `both`。选择 `transfer` 时关闭 qB 轮询，只处理 MP 整理完成后的目标硬链接。
 
 ## 监控与处理流程
 

@@ -18,7 +18,7 @@ DEFAULTS = {
     "qb_done_tag": "已整理", "qb_interval": 5, "qb_settle": 0, "qb_path_mappings": "",
     "failure_move_enabled": False, "failure_move_dir": "", "failure_move_on": "exhausted",
     "failure_move_preserve_structure": True, "delete_on_success": False,
-    "realtime_enabled": True, "realtime_settle": 2,
+    "realtime_enabled": True, "realtime_settle": 2, "monitor_mode": "transfer",
     "protected_paths": "", "hardlink_only": False, "failure_action": "move",
 }
 OBSOLETE = {"access_token", "login_mode", "local_browse_path", "remote_browse_cid",
@@ -70,6 +70,16 @@ def normalize_config(value: Any) -> dict:
         config[key] = flag(config[key])
     config['realtime_settle'] = integer(config['realtime_settle'], 2, 1)
     config['protected_paths'] = '\n'.join(validate_directory(x) for x in split_paths(config['protected_paths']))
+    legacy_qb = flag(original.get('qb_enabled', False))
+    raw_mode = original.get('monitor_mode')
+    mode = str(raw_mode or '').strip().lower()
+    if not mode:
+        mode = 'both' if legacy_qb else 'transfer'
+    if mode not in {'transfer', 'downloader', 'both'}:
+        raise ValueError('监控入口必须为 transfer、downloader 或 both')
+    config['monitor_mode'] = mode
+    config['realtime_enabled'] = mode in {'transfer', 'both'}
+    config['qb_enabled'] = mode in {'downloader', 'both'}
     if config['failure_action'] not in {'move', 'hardlink'}:
         raise ValueError('失败动作必须为 move 或 hardlink')
     config['failure_move_dir'] = validate_directory(config['failure_move_dir'])
