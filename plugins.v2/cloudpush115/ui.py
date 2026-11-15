@@ -83,7 +83,7 @@ def render_page(snapshot: dict, plugin_id: str, include_actions: bool = True):
             node("VIcon", icon="mdi-cloud-upload", color="primary", **{"class": "mr-2"}),
             node("span", "115 网盘秒传"),
         ], **{"class": "d-flex align-center text-h6 font-weight-bold"}),
-        node("VCardText", f"{phase} · v{data['version']} · 快照 {data['snapshot_at']}", **{"class": "pt-0 text-caption text-medium-emphasis"}),
+        node("VCardText", f"{phase} · v{data['version']} · 快照 {data['snapshot_at']} · {data.get('monitor_status', '未启用')} · 实时排队 {data.get('live_count', 0)}", **{"class": "pt-0 text-caption text-medium-emphasis"}),
         node("VCardText", content=[
             action(plugin_id, "刷新显示", "refresh", method="get", icon="mdi-refresh"),
             action(plugin_id, "扫描并秒传", "scan", "mdi-cloud-upload"),
@@ -172,17 +172,29 @@ class UiMixin:
         content = [
             row(field("enabled", "启用定时扫描", "VSwitch", 4), field("onlyonce", "保存后立即运行一次", "VSwitch", 4),
                 field("notify", "发送完成通知", "VSwitch", 4)),
-            heading("文件副作用（默认关闭）", "失败移动和成功删除都默认关闭；开启前确认路径和文件安全策略。", "warning"),
+            heading("事件与原生监控", "启用事件触发后，文件事件会进入队列并等待稳定；原生 watchdog 不可用时自动使用定期 reconciliation。事件入队耗时不包含哈希和网络传输。", "info"),
+            row(field("realtime_enabled", "启用事件实时监控", "VSwitch", 6),
+                field("realtime_settle", "事件稳定等待（秒）", md=6, type="number", min=1,
+                      hint="仅控制事件入队后的稳定等待，最小 1 秒；定期扫描仍按扫描间隔运行。")),
+            heading("文件副作用（默认关闭）", "失败动作和成功删除都默认关闭；开启前确认路径和文件安全策略。", "warning"),
+            row(field("failure_action", "失败文件动作", "VSelect", 12,
+                      items=[{"title": "移动到失败目录", "value": "move"},
+                             {"title": "创建额外硬链接并保留原文件", "value": "hardlink"}],
+                      hint="硬链接动作要求失败目录与源文件位于同一文件系统；不会复制文件。")),
             row(field("failure_move_on", "失败移动时机", "VSelect", 12,
                       items=[{"title": "每次失败（首次归档，后续在新路径重试）", "value": "each_failure"},
                              {"title": "达到重试上限后（需设置有限次数）", "value": "exhausted"}],
                       hint="网络／登录错误也算失败，远端结果可能未知；文件变化则保留。qB按文件失败次数判断。")),
-            row(field("failure_move_enabled", "启用失败文件移动", "VSwitch", 4),
-                field("failure_move_dir", "失败文件目录", md=8, placeholder="/media/failed",
-                      hint="不能位于监控目录内，避免循环扫描")),
+            row(field("failure_move_enabled", "启用失败动作", "VSwitch", 4),
+                field("failure_move_dir", "失败文件目录", md=8, placeholder="/a/b",
+                      hint="移动模式填写失败目录；硬链接模式在此目录创建额外链接。不能位于监控目录内，避免循环扫描。")),
             row(field("failure_move_preserve_structure", "失败移动保留原目录结构", "VSwitch", 6),
-                field("delete_on_success", "秒传明确成功后删除原文件", "VSwitch", 6,
-                      hint="删除／移动会影响qB做种；删除前复核签名，变化则保留")),
+                field("hardlink_only", "仅允许硬链接删除", "VSwitch", 6,
+                      hint="删除成功前要求 nlink≥2；不满足时保留源文件。适用于 /a/a 源文件与 /a/c 管理链接。")),
+            row(field("delete_on_success", "秒传明确成功后删除原文件", "VSwitch", 6,
+                      hint="只删除插件管理的链接，且会复核文件签名；保护目录中的源文件不会被删除。"),
+                field("protected_paths", "受保护的源目录", "VTextarea", 6, rows=2, placeholder="/a/a\n/a/source",
+                      hint="每行一个只读源目录，例如 /a/a；用于保护源文件，原路径不会被删除。")),
             heading("🔐 115 网页 Cookie 登录", "只用115网页Cookie；目录由下方手动填写。保存设置不会遍历目录或请求网盘。"),
             row(field("cookie", "115 网页 Cookie", "VTextarea", 12, rows=3,
                       hint="填写包含 UID / CID / SEID 的 Cookie；请勿填开放平台令牌。")),
@@ -209,4 +221,15 @@ class UiMixin:
                       placeholder="/downloads=>/media/downloads", hint="两个容器的路径不同才填写；每行一条qB前缀=>MP前缀，不自动猜路径。")),
             row(field("user_agent", "115 User-Agent（可选）", md=12, hint="留空保留内置网页UA。")),
         ]
-        return [node("VForm", content=content)], deepcopy(DEFAULTS)
+        # Older hosts use this return value directly instead of the Vue form.
+        # Keep the new controls round-trippable even while loading an older
+        # DEFAULTS mapping from a mixed-version host.
+        fallback = deepcopy(DEFAULTS)
+        fallback.update({
+            "realtime_enabled": True,
+            "realtime_settle": 2,
+            "protected_paths": "",
+            "hardlink_only": False,
+            "failure_action": "move",
+        })
+        return [node("VForm", content=content)], fallback

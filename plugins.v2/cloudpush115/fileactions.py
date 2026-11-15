@@ -139,10 +139,54 @@ def move_failed(path, target_dir, preserve_root=None, token='', expected=None):
                 Path(temp).unlink(missing_ok=True)
 
 
-def delete_source(path, expected=None):
+def check_policy(path, protected=(), hardlink_only=False):
+    if any(contains(root, path) for root in protected):
+        raise ValueError('路径位于受保护源目录，保留原文件')
+    st = os.stat(path, follow_symlinks=False)
+    if not stat.S_ISREG(st.st_mode):
+        raise ValueError('只允许处理普通文件，拒绝软链')
+    if hardlink_only and st.st_nlink < 2:
+        raise ValueError('硬链接数不足2，保留最后一份文件')
+
+
+def hardlink_destination(path, target_dir, preserve_root=None):
+    src = Path(os.path.abspath(path))
+    target = Path(validate_directory(target_dir))
+    rel = Path(src.name)
+    if preserve_root:
+        try:
+            rel = src.relative_to(Path(os.path.abspath(preserve_root)))
+        except ValueError:
+            pass
+    dest = target / rel
+    if not contains(target, dest.parent):
+        raise ValueError('归档路径越出目标目录')
+    return str(dest)
+
+
+def link_failed(path, destination, expected):
+    """Publish exactly the registered link, keeping source; EXDEV is an error."""
+    src, dest = Path(path), Path(destination)
     with path_lock(path):
+        if signature(src) != tuple(expected):
+            raise RuntimeError('文件签名已变化，保留原路径')
+        dest.parent.mkdir(parents=True, exist_ok=True)
+        try:
+            os.link(src, dest, follow_symlinks=False)
+        except FileExistsError:
+            if signature(dest) != tuple(expected):
+                raise FileExistsError('归档目标已存在且不是相同文件')
+        if signature(src) != tuple(expected) or signature(dest) != tuple(expected):
+            raise RuntimeError('硬链接创建期间文件发生变化')
+        _sync_dir(dest.parent)
+        return str(dest), tuple(expected)
+
+
+def delete_source(path, expected=None, protected=(), hardlink_only=False):
+    with path_lock(path):
+        check_policy(path, protected, hardlink_only)
         current = signature(path)
         if expected is None or tuple(expected) != current:
             return False, '文件签名未确认或已变化，跳过删除'
         Path(path).unlink()
-        return True, '原文件已删除'
+        return True, '登记的本地链接已删除'

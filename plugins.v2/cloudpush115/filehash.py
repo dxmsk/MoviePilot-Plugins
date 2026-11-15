@@ -13,6 +13,16 @@ from collections import OrderedDict
 from pathlib import Path
 from typing import Union
 
+try:
+    from . import hashstore
+except ImportError:  # Standalone loading for shared-cache compatibility tools.
+    hashstore = None
+
+
+def configure_cache(directory):
+    if hashstore is not None:
+        hashstore.configure_cache(directory)
+
 _MAX_ENTRIES = 2048
 _CHUNK = 4 * 1024 * 1024
 _cache = OrderedDict()
@@ -26,6 +36,8 @@ _shared.lock = threading.RLock()
 _shared.disks = {}
 _shared = sys.modules.setdefault(_shared.__name__, _shared)
 _cache, _inflight, _lock = _shared.cache, _shared.inflight, _shared.lock
+if not hasattr(_shared, 'ctimes'):
+    _shared.ctimes = {}
 
 
 def _disk_lock(device):
@@ -58,9 +70,10 @@ def sha1_file(path: Union[str, Path], chunk_size: int = _CHUNK) -> str:
     p = Path(path)
     while True:
         key = _signature(p)
+        ctime = p.stat().st_ctime_ns
         with _lock:
             cached = _cache.get(key)
-            if cached is not None:
+            if cached is not None and _shared.ctimes.get(key, ctime) == ctime:
                 _cache.move_to_end(key)
                 return cached
             event = _inflight.get(key)
@@ -73,14 +86,23 @@ def sha1_file(path: Union[str, Path], chunk_size: int = _CHUNK) -> str:
         with _disk_lock(key[1]):
             if key != _signature(p):
                 raise OSError('文件在等待哈希时发生变化')
-            digest = _read_sha1(p, max(64 * 1024, min(16 * 1024 * 1024, int(chunk_size))))
-            if key != _signature(p):
+            identity = hashstore.identity(p) if hashstore is not None else None
+            digest = hashstore.lookup(p) if hashstore is not None else None
+            if digest is None:
+                digest = _read_sha1(p, max(64 * 1024, min(16 * 1024 * 1024, int(chunk_size))))
+            if key != _signature(p) or (hashstore is not None and identity != hashstore.identity(p)):
                 raise OSError('文件在哈希期间发生变化')
+            if hashstore is not None:
+                hashstore.store(p, digest, identity)
         with _lock:
             _cache[key] = digest
+            _shared.ctimes[key] = p.stat().st_ctime_ns
             _cache.move_to_end(key)
             while len(_cache) > _MAX_ENTRIES:
-                _cache.popitem(last=False)
+                removed, _ = _cache.popitem(last=False)
+                _shared.ctimes.pop(removed, None)
+            if len(_shared.ctimes) > _MAX_ENTRIES * 2:
+                _shared.ctimes = {k: v for k, v in _shared.ctimes.items() if k in _cache}
         return digest
     finally:
         with _lock:

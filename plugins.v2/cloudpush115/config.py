@@ -18,6 +18,8 @@ DEFAULTS = {
     "qb_done_tag": "已整理", "qb_interval": 5, "qb_settle": 0, "qb_path_mappings": "",
     "failure_move_enabled": False, "failure_move_dir": "", "failure_move_on": "exhausted",
     "failure_move_preserve_structure": True, "delete_on_success": False,
+    "realtime_enabled": True, "realtime_settle": 2,
+    "protected_paths": "", "hardlink_only": False, "failure_action": "move",
 }
 OBSOLETE = {"access_token", "login_mode", "local_browse_path", "remote_browse_cid",
             "remote_browse_path", "watch_paths_display", "remote_dir_display"}
@@ -64,8 +66,12 @@ def normalize_config(value: Any) -> dict:
     config["watch_paths"] = "\n".join(split_paths(config.get("watch_paths")))
     config["remote_dir"] = remote_path(config.get("remote_dir"))
     from .fileactions import validate_directory, contains
-    for key in ('failure_move_enabled', 'delete_on_success', 'failure_move_preserve_structure'):
+    for key in ('failure_move_enabled', 'delete_on_success', 'failure_move_preserve_structure', 'realtime_enabled', 'hardlink_only'):
         config[key] = flag(config[key])
+    config['realtime_settle'] = integer(config['realtime_settle'], 2, 1)
+    config['protected_paths'] = '\n'.join(validate_directory(x) for x in split_paths(config['protected_paths']))
+    if config['failure_action'] not in {'move', 'hardlink'}:
+        raise ValueError('失败动作必须为 move 或 hardlink')
     config['failure_move_dir'] = validate_directory(config['failure_move_dir'])
     if config['failure_move_on'] not in {'each_failure', 'exhausted'}:
         raise ValueError('失败移动策略必须为 each_failure 或 exhausted')
@@ -74,6 +80,8 @@ def normalize_config(value: Any) -> dict:
             raise ValueError('启用失败移动时必须设置失败目录')
         if any(contains(root, config['failure_move_dir']) for root in split_paths(config['watch_paths'])):
             raise ValueError('失败目录不能位于监控目录内，避免循环扫描')
+        if any(contains(root, config['failure_move_dir']) for root in split_paths(config['protected_paths'])):
+            raise ValueError('失败目录不能位于受保护源目录内')
         if config['failure_move_on'] == 'exhausted' and config['max_attempts'] == 0:
             raise ValueError('无限重试请选每次失败移动，或设置有限重试次数')
     return config

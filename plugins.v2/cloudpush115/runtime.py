@@ -34,9 +34,11 @@ from .scanner import MediaScanner, RetryQueue
 
 from .actions import ActionsMixin
 from .fileactions import path_lock, signature as file_signature
+from .filehash import configure_cache
+from .realtime import RealtimeMixin
 
 
-class RuntimeMixin(ActionsMixin):
+class RuntimeMixin(RealtimeMixin, ActionsMixin):
     STATE_KEY = "state_v2"
     LOG = "[115秒传] "
 
@@ -45,6 +47,7 @@ class RuntimeMixin(ActionsMixin):
         self._state_lock = threading.RLock()
         self._lifecycle_lock = threading.RLock()
         self._persist_lock = threading.RLock()
+        self._transfer_lock = threading.RLock()
         self._config = dict(DEFAULTS)
         self._scheduler = None
         self._worker = None
@@ -77,6 +80,8 @@ class RuntimeMixin(ActionsMixin):
         self._clients = {}
         self._remote_ids = {}
         self._job_context = threading.local()
+        self._realtime_init()
+        self._service_stopped = False
 
     def init_plugin(self, config: dict = None) -> None:
         """Configuration reload never replaces a running job's configuration or state."""
@@ -85,9 +90,11 @@ class RuntimeMixin(ActionsMixin):
             run_once = normalized["onlyonce"]
             normalized["onlyonce"] = False
             self._stop_scheduler()
+            self._stop_monitor()
             with self._state_lock:
                 self._generation += 1
                 self._config = normalized
+                self._service_stopped = False
                 self._pending_jobs.clear()
                 generation = self._generation
                 self._qb_config_error = ""
@@ -104,6 +111,7 @@ class RuntimeMixin(ActionsMixin):
                 except Exception as exc:
                     self._set_error("配置保存失败：" + clean_message(exc, normalized))
             self._configure_schedule(normalized, generation)
+            self._start_monitor(normalized, generation)
             if split_paths(normalized["watch_paths"]):
                 self._enqueue("scan" if normalized["enabled"] or run_once else "index")
             else:
@@ -144,6 +152,8 @@ class RuntimeMixin(ActionsMixin):
                 self._qb_tasks = {str(x["id"]): deepcopy(x) for x in stored.get("qb_queue", [])
                                   if isinstance(x, dict) and x.get("id")}
                 self._queue = RetryQueue(self._config["retry_interval"], self._config["max_attempts"], stored.get("retry_queue", []))
+                self._live_queue = {x['path']: deepcopy(x) for x in stored.get('live_queue', [])
+                                    if isinstance(x, dict) and isinstance(x.get('path'), str)}
                 self._last_scan = str(stored.get("last_scan") or "")
                 self._last_index = str(stored.get("last_index") or "")
                 self._last_qb = str(stored.get("last_qb") or "")
@@ -165,6 +175,7 @@ class RuntimeMixin(ActionsMixin):
                                   "legacy_done": sorted(self._legacy_done), "legacy_adopted": sorted(self._legacy_adopted),
                                   "legacy_scope": self._legacy_scope, "legacy_target": self._legacy_target,
                                   "retry_queue": self._queue.to_list(), "local_queue": list(self._inventory.values()),
+                                  "live_queue": list(self._live_queue.values()),
                                   "qb_queue": list(self._qb_tasks.values()), "roots": self._root_states,
                                   "last_scan": self._last_scan, "last_index": self._last_index, "last_qb": self._last_qb})
             try:
@@ -206,6 +217,9 @@ class RuntimeMixin(ActionsMixin):
             if cfg["enabled"] or cfg["qb_enabled"]:
                 scheduler.add_job(self._scheduled, "interval", seconds=min(60, retry_sec),
                                   args=["retry", generation], id="cloudpush115_retry", coalesce=True, max_instances=1)
+            if cfg['enabled'] and cfg.get('realtime_enabled', True):
+                scheduler.add_job(self._live_tick, 'interval', seconds=1, args=[generation],
+                                  id='cloudpush115_live', coalesce=True, max_instances=1)
             if cfg["qb_enabled"]:
                 scheduler.add_job(self._qb_tick, "interval", seconds=qb_sec,
                                   args=[generation], id="cloudpush115_qb", coalesce=True, max_instances=1)
@@ -271,9 +285,13 @@ class RuntimeMixin(ActionsMixin):
                 cfg = deepcopy(self._config)
                 self._job_context.config, self._job_context.generation = cfg, gen
                 self._running, self._active_kind = True, kind
-                self._phase = {"scan": "indexing", "index": "indexing", "qb": "qb", "retry": "retry"}[kind]
+                self._phase = {"scan": "indexing", "index": "indexing", "qb": "qb", "retry": "retry", "live": "uploading"}[kind]
             try:
-                if kind in {"scan", "index"}:
+                if kind != 'index':
+                    self._recover_file_actions(cfg, gen)
+                if kind == 'live':
+                    self._drain_live(cfg, gen)
+                elif kind in {"scan", "index"}:
                     complete = self._index_local(cfg, gen)
                     if complete and kind == "scan" and self._is_current(gen):
                         self._upload_local(cfg, gen)
@@ -291,7 +309,9 @@ class RuntimeMixin(ActionsMixin):
 
     def stop_service(self) -> None:
         with self._lifecycle_lock:
+            self._service_stopped = True
             self._stop_scheduler()
+            self._stop_monitor()
             with self._state_lock:
                 self._generation += 1
                 self._pending_jobs.clear()
@@ -311,6 +331,12 @@ class RuntimeMixin(ActionsMixin):
         return bool(self._config["cookie"])
 
     def _make_client(self, cfg: dict = None):
+        try:
+            getter = getattr(self, 'get_data_path', None)
+            if callable(getter):
+                configure_cache(getter())
+        except Exception as exc:
+            logger.debug(self.LOG + 'SHA1缓存使用内存模式：' + type(exc).__name__)
         cfg = cfg or getattr(self._job_context, "config", self._config)
         key = (cfg["cookie"], cfg["user_agent"])
         if key not in self._clients:
@@ -439,12 +465,16 @@ class RuntimeMixin(ActionsMixin):
             self._notify_result("115本地秒传完成", f"成功 {completed} · 失败 {failed}；队列详情见插件主页")
 
     def _transfer(self, item: dict, cfg: dict, source: str = "local", target: str = None) -> dict:
-        with path_lock(item['path']):
-            return self._transfer_locked(item, cfg, source, target)
+        with self._transfer_lock:
+            with path_lock(item['path']):
+                return self._transfer_locked(item, cfg, source, target)
 
     def _transfer_locked(self, item: dict, cfg: dict, source: str = "local", target: str = None) -> dict:
         before_signature = None
         target = remote_path(target if target is not None else cfg["remote_dir"])
+        resumed = self._resume_file_actions(item, cfg, source, target)
+        if resumed is not None:
+            return resumed
         if not Path(item['path']).exists():
             key = task_key(item['path'], target, account_scope(cfg))
             with self._state_lock:
@@ -494,8 +524,9 @@ class RuntimeMixin(ActionsMixin):
         ident = task_key(path, target, scope)
         with self._state_lock:
             if ok or skipped:
-                self._ledger[ident] = {"path": path, "target": target, "scope": scope,
-                                      "signature": signature(item), "status": "success" if ok else "skipped", "at": time.time()}
+                self._ledger[ident] = {**self._ledger.get(ident, {}), "path": path, "target": target, "scope": scope,
+                                      "signature": signature(item), "status": "success" if ok else "skipped", "at": time.time(),
+                                      "verified_file_signature": list(before_signature) if before_signature else None}
                 pending_retry = self._queue.pending.get(path)
                 if pending_retry and remote_path(pending_retry.get("remote_dir")) == target and pending_retry.get("scope", scope) == scope:
                     self._queue.remove(path)
@@ -682,6 +713,7 @@ class RuntimeMixin(ActionsMixin):
                      "indexed": len(inventory), "roots": len(split_paths(cfg["watch_paths"]))}
             result = {"schema": 2, "enabled": cfg["enabled"], "qb_enabled": cfg["qb_enabled"],
                       "running": self._running, "phase": self._phase, "pending_jobs": [x[0] for x in self._pending_jobs],
+                      "monitor_status": self._monitor_status, "live_count": len(self._live_queue),
                       "done_count": stats["success"], "retry_count": stats["retry"], "local_count": stats["local"],
                       "last_run": self._last_scan, "last_scan": self._last_scan, "last_index": self._last_index,
                       "last_qb": self._last_qb, "stats": stats, "history": history[:limit],
